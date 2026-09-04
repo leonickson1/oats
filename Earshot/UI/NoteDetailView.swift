@@ -38,8 +38,8 @@ struct NoteDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            picker
-            Divider()
+            tabBar
+            Divider().opacity(0.5)
 
             Group {
                 switch tab {
@@ -47,10 +47,16 @@ struct NoteDetailView: View {
                 case .transcript: TranscriptPane(
                     segments: displayedSegments,
                     isLive: isLiveNote,
+                    isPaused: recorder.isPaused,
                     volatileMe: isLiveNote ? recorder.volatileMe : "",
                     volatileThem: isLiveNote ? recorder.volatileThem : "",
                     elapsed: isLiveNote ? recorder.elapsed : (store.meta(id: noteID)?.duration ?? 0),
-                    systemAudioUnavailable: recorder.systemAudioUnavailable
+                    systemAudioUnavailable: recorder.systemAudioUnavailable,
+                    canGenerateSummary: !isLiveNote && store.loadSummary(noteID: noteID).isEmpty && !displayedSegments.isEmpty && !recorder.isSummarizing,
+                    onGenerateSummary: {
+                        tab = .summary
+                        Task { await recorder.generateSummary(noteID: noteID) }
+                    }
                 )
                 case .summary: summaryTab
                 }
@@ -58,9 +64,9 @@ struct NoteDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !chat.isEmpty { chatSection }
-            bottomBar
         }
         .background(Theme.windowBG)
+        .safeAreaInset(edge: .bottom) { bottomBar }
         .onAppear(perform: load)
         .onChange(of: store.revision) { reload() }
         .onChange(of: thoughts) { scheduleSave() }
@@ -82,6 +88,27 @@ struct NoteDetailView: View {
                 }
                 .disabled(capture.isCapturing)
                 .help("Capture part of the screen into this note (slides, charts, whiteboards)")
+            }
+            ToolbarItem {
+                Menu {
+                    Button("Reveal files in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([store.dir(for: noteID)])
+                    }
+                    Button("Copy transcript") {
+                        let text = displayedSegments.filter { $0.channel != "system" }
+                            .map { "[\($0.t.clockString)] \($0.channel == "me" ? "Me" : "Them"): \($0.text)" }
+                            .joined(separator: "\n")
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                    Divider()
+                    Button("Delete note", role: .destructive) {
+                        app.notePath = []
+                        store.deleteNote(id: noteID)
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis")
+                }
             }
         }
         .alert("Add link", isPresented: $showLinkPrompt) {
@@ -139,47 +166,78 @@ struct NoteDetailView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            TextField("New note", text: $title)
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("New note", text: $title, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 24, weight: .bold))
-            HStack(spacing: 8) {
+                .font(.system(size: 30, weight: .medium, design: .serif))
+                .foregroundStyle(store.meta(id: noteID)?.isUntitled == true ? Color.secondary : Color.primary)
+                .lineLimit(2)
+
+            HStack(spacing: 7) {
                 if let meta = store.meta(id: noteID) {
-                    Text(meta.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    MetaChip(icon: "calendar", text: chipDate(meta.createdAt))
+                }
+                let duration = isLiveNote ? recorder.elapsed : (store.meta(id: noteID)?.duration ?? 0)
+                if duration > 0 || isLiveNote {
+                    MetaChip(icon: "clock", text: duration.clockString)
                 }
                 if isLiveNote {
                     if recorder.state == .starting {
-                        Text("Preparing the on-device speech model")
+                        MetaChip(icon: "waveform", text: "Preparing")
+                    } else if recorder.isPaused {
+                        MetaChip(icon: "pause.fill", text: "Paused")
                     } else {
-                        Text(recorder.isPaused ? "Paused" : "Listening")
-                            .foregroundStyle(recorder.isPaused ? Color.secondary : Theme.record)
+                        MetaChip(icon: "waveform", text: "Listening", tint: Theme.record)
                     }
                 } else if recorder.isSummarizing {
-                    Text("Summarizing with \(agent.activeAgentName)")
+                    MetaChip(icon: "brain", text: "Summarizing")
                 }
             }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var picker: some View {
-        Picker("", selection: $tab) {
+    private func chipDate(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    // MARK: - Underline tabs
+
+    private var tabBar: some View {
+        HStack(spacing: 24) {
             ForEach(NoteTab.allCases, id: \.self) { t in
-                Text(t.rawValue).tag(t)
+                Button {
+                    tab = t
+                } label: {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            if t == .transcript && isLiveNote && !recorder.isPaused {
+                                WaveformBars(levels: recorder.levels, barColor: Theme.record, barCount: 4, maxHeight: 10)
+                            }
+                            Text(t.rawValue)
+                                .font(.system(size: 14, weight: tab == t ? .semibold : .regular))
+                                .foregroundStyle(tab == t ? Color.primary : Color.secondary)
+                        }
+                        Rectangle()
+                            .fill(tab == t ? Color.primary : Color.clear)
+                            .frame(height: 2)
+                    }
+                    .fixedSize()
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
+            Spacer()
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 380)
-        .padding(.horizontal, 22)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 28)
     }
 
-    // MARK: - Thoughts (rich editor + attachments)
+    // MARK: - Thoughts
 
     private var thoughtsTab: some View {
         VStack(spacing: 0) {
@@ -193,19 +251,19 @@ struct NoteDetailView: View {
                     attachments = store.loadAttachments(noteID: noteID)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 24)
             .padding(.vertical, 8)
 
             TextEditor(text: $thoughts, selection: $selection)
                 .font(.system(size: 13.5))
                 .scrollContentBackground(.hidden)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 20)
                 .overlay(alignment: .topLeading) {
                     if thoughts.characters.isEmpty {
-                        Text("Type anything. Earshot keeps listening and takes the notes for you.")
+                        Text("Write notes, or drop in a capture. Earshot keeps listening either way.")
                             .font(.system(size: 13.5))
                             .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 19)
+                            .padding(.horizontal, 25)
                             .padding(.top, 8)
                             .allowsHitTesting(false)
                     }
@@ -213,7 +271,7 @@ struct NoteDetailView: View {
 
             if !attachments.isEmpty {
                 AttachmentStrip(noteID: noteID, attachments: $attachments)
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 8)
             }
         }
@@ -241,27 +299,30 @@ struct NoteDetailView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.top, 60)
+                    .padding(.top, 70)
                     .frame(maxWidth: .infinity)
                 } else if summary.isEmpty {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 14) {
                         Text(isLiveNote ? "The summary is written when you stop." : "No summary yet.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 14, design: .serif))
+                            .italic()
+                            .foregroundStyle(.tertiary)
                         if !isLiveNote && !displayedSegments.isEmpty {
-                            Button("Generate summary") {
+                            Button {
                                 Task { await recorder.generateSummary(noteID: noteID) }
+                            } label: {
+                                Label("Generate summary", systemImage: "plus")
                             }
-                            .buttonStyle(.glass)
+                            .buttonStyle(.glassProminent)
                         }
                     }
-                    .padding(.top, 60)
+                    .padding(.top, 70)
                     .frame(maxWidth: .infinity)
                 } else {
                     Text(markdownish(summary))
                         .font(.system(size: 13.5))
                         .textSelection(.enabled)
-                        .lineSpacing(3)
+                        .lineSpacing(3.5)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !isLiveNote {
                         Button("Regenerate") {
@@ -272,8 +333,10 @@ struct NoteDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 14)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 16)
         }
     }
 
@@ -304,19 +367,19 @@ struct NoteDetailView: View {
                         }
                     }
                 }
-                .padding(12)
+                .padding(14)
             }
             .frame(height: 160)
             .card()
-            .padding(.horizontal, 18)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 4)
             .onChange(of: chat.count) {
                 if let last = chat.last { withAnimation { proxy.scrollTo(last.id) } }
             }
         }
     }
 
-    // MARK: - Bottom bar
+    // MARK: - Floating bottom bar
 
     private var bottomBar: some View {
         VStack(spacing: 7) {
@@ -326,45 +389,74 @@ struct NoteDetailView: View {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
                     if isLiveNote {
-                        Button {
-                            if recorder.isPaused { recorder.resume() } else { recorder.pause() }
-                        } label: {
-                            Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
-                                .frame(width: 20, height: 20)
-                        }
-                        .buttonStyle(.glass)
-                        .help(recorder.isPaused ? "Resume" : "Pause")
+                        if recorder.isPaused {
+                            Button {
+                                recorder.resume()
+                            } label: {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "record.circle")
+                                        .foregroundStyle(Theme.record)
+                                    Text("Resume")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                        } else {
+                            Button {
+                                recorder.pause()
+                            } label: {
+                                Image(systemName: "pause.fill")
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                            .help("Pause")
 
-                        Button {
-                            app.stopMeetingNote()
-                        } label: {
-                            Label("Stop", systemImage: "stop.fill")
+                            Button {
+                                app.stopMeetingNote()
+                            } label: {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "stop.fill")
+                                        .foregroundStyle(Theme.record)
+                                    Text("Stop")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                            .help("Stop and summarize")
                         }
-                        .buttonStyle(.glassProminent)
-                        .tint(Theme.record)
-                        .help("Stop and summarize")
                     }
 
                     HStack(spacing: 8) {
-                        TextField("Ask anything about this meeting", text: $askText)
+                        TextField("Ask anything", text: $askText)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13.5))
                             .onSubmit { ask(askText) }
-                        if isLiveNote {
-                            Button("What did I miss?") { ask("What did I miss?") }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .disabled(isAsking)
+                        if isAsking {
+                            ProgressView().controlSize(.small)
+                        } else if isLiveNote {
+                            Button {
+                                ask("What did I miss?")
+                            } label: {
+                                Text("What did I miss?")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(.quaternary.opacity(0.6), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 6)
+                    .frame(height: 42)
                     .glassEffect(.regular, in: .capsule)
                 }
             }
+            .frame(maxWidth: 680)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .padding(.top, 4)
     }
@@ -403,43 +495,55 @@ struct NoteDetailView: View {
     }
 }
 
-// MARK: - Transcript pane
+// MARK: - Transcript pane (bubble style)
 
 struct TranscriptPane: View {
     let segments: [TranscriptSegment]
     let isLive: Bool
+    let isPaused: Bool
     let volatileMe: String
     let volatileThem: String
     let elapsed: TimeInterval
     let systemAudioUnavailable: Bool
+    let canGenerateSummary: Bool
+    let onGenerateSummary: () -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 13) {
-                    statusRow
+                VStack(alignment: .leading, spacing: 10) {
+                    sessionCard
                     if segments.isEmpty && volatileMe.isEmpty && volatileThem.isEmpty {
-                        Text(isLive ? "Listening" : "No transcript was captured.")
-                            .font(.system(size: 13))
-                            .italic(isLive)
+                        Text(isLive ? "Listening..." : "No transcript was captured.")
+                            .font(.system(size: 16, design: .serif))
+                            .italic()
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 80)
+                            .padding(.top, 90)
                     } else {
-                        ForEach(segments) { segment in
-                            if segment.channel == "system" {
-                                systemMarker(segment)
-                            } else {
-                                row(who: segment.channel == "me" ? "Me" : "Them", text: segment.text, dim: false, t: segment.t)
-                            }
+                        bubbles
+                        if isPaused {
+                            DashedMarker(label: "Paused", icon: "pause")
                         }
-                        if isLive && !volatileThem.isEmpty { row(who: "Them", text: volatileThem, dim: true, t: nil) }
-                        if isLive && !volatileMe.isEmpty { row(who: "Me", text: volatileMe, dim: true, t: nil) }
+                        if canGenerateSummary {
+                            HStack {
+                                Spacer()
+                                Button(action: onGenerateSummary) {
+                                    Label("Generate summary", systemImage: "plus")
+                                }
+                                .buttonStyle(.glassProminent)
+                                Spacer()
+                            }
+                            .padding(.top, 14)
+                        }
                     }
                     Color.clear.frame(height: 4).id("bottom")
                 }
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
             }
             .onChange(of: segments.count) {
                 withAnimation { proxy.scrollTo("bottom") }
@@ -447,72 +551,82 @@ struct TranscriptPane: View {
         }
     }
 
-    private var statusRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "clock")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Text(elapsed.clockString)
-                .font(.system(size: 12, weight: .medium))
-                .monospacedDigit()
-            Spacer()
-            if isLive {
-                Text(systemAudioUnavailable
-                     ? "System audio is off; only your mic is heard. Allow System Audio Recording in Privacy & Security."
-                     : "On-device transcription. Nothing leaves this Mac.")
-                    .font(.system(size: 11))
+    private var sessionCard: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
+                Text(elapsed.clockString)
+                    .font(.system(size: 13, weight: .medium))
+                    .monospacedDigit()
+                Spacer()
             }
-            Button {
-                let text = segments.filter { $0.channel != "system" }
-                    .map { "[\($0.t.clockString)] \($0.channel == "me" ? "Me" : "Them"): \($0.text)" }
-                    .joined(separator: "\n")
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 11))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+
+            if isLive {
+                HStack {
+                    Text(systemAudioUnavailable
+                         ? "System audio is off; only your mic is heard. Allow System Audio Recording in Privacy & Security."
+                         : "Transcribing on this Mac. Nothing leaves your device.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.quaternary.opacity(0.4))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Copy transcript")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .card(radius: 10)
+        .card(radius: 12)
+        .padding(.bottom, 8)
     }
 
-    private func row(who: String, text: String, dim: Bool, t: TimeInterval?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(who)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(who == "Me" ? Color.secondary : Theme.record)
-                if let t {
-                    Text(t.clockString)
-                        .font(.system(size: 10))
-                        .monospacedDigit()
-                        .foregroundStyle(.quaternary)
+    private var bubbles: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                if segment.channel == "system" {
+                    DashedMarker(label: segment.text, icon: segment.text == "Paused" ? "pause" : "play")
+                } else {
+                    if speakerChanged(at: index) {
+                        Text(segment.channel == "me" ? "Me" : "Them")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(segment.channel == "me" ? Color.secondary : Theme.record)
+                            .padding(.top, index == 0 ? 0 : 8)
+                            .padding(.leading, 2)
+                    }
+                    bubble(segment.text, dim: false)
                 }
             }
-            Text(text)
-                .font(.system(size: 13.5))
-                .foregroundStyle(dim ? Color.secondary : Color.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isLive && !volatileThem.isEmpty {
+                bubble(volatileThem, dim: true)
+            }
+            if isLive && !volatileMe.isEmpty {
+                bubble(volatileMe, dim: true)
+            }
         }
     }
 
-    private func systemMarker(_ segment: TranscriptSegment) -> some View {
-        HStack(spacing: 8) {
-            Rectangle().fill(Theme.separator).frame(height: 1)
-            Label(segment.text, systemImage: segment.text == "Paused" ? "pause" : "play")
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .labelStyle(.titleAndIcon)
-                .fixedSize()
-            Rectangle().fill(Theme.separator).frame(height: 1)
-        }
-        .padding(.vertical, 2)
+    private func speakerChanged(at index: Int) -> Bool {
+        let spoken = segments
+        guard index < spoken.count else { return false }
+        let current = spoken[index].channel
+        var previousIndex = index - 1
+        while previousIndex >= 0, spoken[previousIndex].channel == "system" { previousIndex -= 1 }
+        guard previousIndex >= 0 else { return true }
+        return spoken[previousIndex].channel != current
+    }
+
+    private func bubble(_ text: String, dim: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 13.5))
+            .foregroundStyle(dim ? Color.secondary : Color.primary)
+            .textSelection(.enabled)
+            .lineSpacing(2.5)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 9)
+            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

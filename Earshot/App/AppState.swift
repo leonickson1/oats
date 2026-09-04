@@ -11,7 +11,8 @@ final class AppState: ObservableObject {
     let recorder: MeetingRecorder
     let capture: CaptureManager
 
-    @Published var selectedNoteID: UUID?
+    // Navigation: the home screen pushes note detail onto this path.
+    @Published var notePath: [UUID] = []
     @Published var showOnboarding = false
 
     @Published var hudVisible: Bool {
@@ -82,7 +83,7 @@ final class AppState: ObservableObject {
         guard !recorder.isActive else { return }
         Task {
             if let id = await recorder.start() {
-                selectedNoteID = id
+                notePath = [id]
                 showMainWindow()
             } else {
                 showMainWindow()
@@ -101,13 +102,13 @@ final class AppState: ObservableObject {
 
     func showCurrentNoteWindow() {
         if let id = recorder.currentNoteID {
-            selectedNoteID = id
+            notePath = [id]
         }
         showMainWindow()
     }
 
     func openNote(id: UUID) {
-        selectedNoteID = id
+        notePath = [id]
         showMainWindow()
     }
 }

@@ -16,17 +16,71 @@ enum Theme {
 }
 
 struct CardBackground: ViewModifier {
-    var radius: CGFloat = 12
+    var radius: CGFloat = 14
     func body(content: Content) -> some View {
         content
-            .background(Theme.card)
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Theme.separator.opacity(0.6), lineWidth: 1))
+            .background(.quaternary.opacity(0.35))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Theme.separator.opacity(0.45), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
 extension View {
-    func card(radius: CGFloat = 12) -> some View { modifier(CardBackground(radius: radius)) }
+    func card(radius: CGFloat = 14) -> some View { modifier(CardBackground(radius: radius)) }
+}
+
+// Small metadata capsule (date, duration, status) under a note title.
+struct MetaChip: View {
+    let icon: String
+    let text: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10.5, weight: .medium))
+            Text(text)
+                .font(.system(size: 11.5, weight: .medium))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4.5)
+        .background(.quaternary.opacity(0.5), in: Capsule())
+    }
+}
+
+// A dashed pause/resume divider, like a seam in the transcript.
+struct DashedMarker: View {
+    let label: String
+    let icon: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            line
+            Label(label, systemImage: icon)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+            line
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var line: some View {
+        Rectangle()
+            .frame(height: 1)
+            .foregroundStyle(.clear)
+            .overlay(
+                GeometryReader { geo in
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: 0.5))
+                        p.addLine(to: CGPoint(x: geo.size.width, y: 0.5))
+                    }
+                    .stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                }
+            )
+    }
 }
 
 // Live waveform bars driven by real audio levels. Flat when silent, never fake.

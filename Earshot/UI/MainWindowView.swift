@@ -1,70 +1,73 @@
 import SwiftUI
 import AppKit
 
-// Native macOS structure: sidebar of notes (Apple Notes pattern), detail is
-// the note itself. Liquid Glass comes from native components and toolbars.
+// Home: one calm dark canvas, notes grouped by day, a floating ask bar.
+// Notes push onto a NavigationStack like documents, not master-detail panes.
 struct MainWindowView: View {
     @EnvironmentObject var app: AppState
-    @EnvironmentObject var store: NoteStore
-    @EnvironmentObject var recorder: MeetingRecorder
-    @State private var searchText = ""
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 340)
-        } detail: {
-            if let id = app.selectedNoteID, store.meta(id: id) != nil {
-                NoteDetailView(noteID: id)
-                    .id(id)
-            } else {
-                WelcomePane()
-            }
+        NavigationStack(path: $app.notePath) {
+            HomeView()
+                .navigationDestination(for: UUID.self) { id in
+                    NoteDetailView(noteID: id)
+                }
         }
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
         }
     }
+}
 
-    private var sidebar: some View {
-        List(selection: $app.selectedNoteID) {
-            ForEach(groupedNotes, id: \.0) { day, notes in
-                Section(day) {
-                    ForEach(notes) { meta in
-                        NoteRow(meta: meta, isLive: recorder.isActive && recorder.currentNoteID == meta.id)
-                            .tag(meta.id)
-                            .contextMenu {
-                                Button("Reveal files in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([store.dir(for: meta.id)])
-                                }
-                                Divider()
-                                Button("Delete note", role: .destructive) {
-                                    if app.selectedNoteID == meta.id { app.selectedNoteID = nil }
-                                    store.deleteNote(id: meta.id)
-                                }
+struct HomeView: View {
+    @EnvironmentObject var app: AppState
+    @EnvironmentObject var store: NoteStore
+    @EnvironmentObject var recorder: MeetingRecorder
+    @EnvironmentObject var agent: AgentBridge
+
+    @State private var searchText = ""
+    @State private var askText = ""
+    @State private var askAnswer: String?
+    @State private var askError: String?
+    @State private var isAsking = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Notes")
+                    .font(.system(size: 30, weight: .medium, design: .serif))
+                    .padding(.top, 20)
+                    .padding(.bottom, 18)
+
+                if recorder.isActive, let liveID = recorder.currentNoteID {
+                    liveCard(liveID)
+                        .padding(.bottom, 20)
+                }
+
+                if store.notes.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(groupedNotes, id: \.0) { day, notes in
+                        Text(day)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 16)
+                            .padding(.bottom, 6)
+                        VStack(spacing: 1) {
+                            ForEach(notes) { meta in
+                                noteRow(meta)
                             }
+                        }
                     }
                 }
+                Color.clear.frame(height: 30)
             }
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 32)
         }
-        .listStyle(.sidebar)
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search notes")
-        .overlay {
-            if store.notes.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 26, weight: .light))
-                        .foregroundStyle(.tertiary)
-                    Text("No notes yet")
-                        .font(.headline)
-                    Text("Start a recording before your next meeting.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-            }
-        }
+        .background(Theme.windowBG)
+        .searchable(text: $searchText, prompt: "Search notes")
         .toolbar {
             ToolbarItem {
                 if recorder.isActive {
@@ -92,7 +95,178 @@ struct MainWindowView: View {
                 .help("Settings")
             }
         }
+        .safeAreaInset(edge: .bottom) { askBar }
     }
+
+    // MARK: - Live recording card
+
+    private func liveCard(_ id: UUID) -> some View {
+        Button {
+            app.openNote(id: id)
+        } label: {
+            HStack(spacing: 12) {
+                WaveformBars(levels: recorder.levels, barColor: Theme.record, barCount: 9, maxHeight: 14)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.meta(id: id)?.title ?? "New note")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(recorder.isPaused ? "Paused" : "Listening")
+                        .font(.system(size: 12))
+                        .foregroundStyle(recorder.isPaused ? Color.secondary : Theme.record)
+                }
+                Spacer()
+                Text(recorder.elapsed.clockString)
+                    .font(.system(size: 13, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+    }
+
+    // MARK: - Rows
+
+    private func noteRow(_ meta: NoteMeta) -> some View {
+        Button {
+            app.openNote(id: meta.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(meta.title)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .lineLimit(1)
+                    Text(meta.duration > 0 ? "Me · \(meta.duration.clockString)" : "Me")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(meta.createdAt.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(HomeRowButtonStyle())
+        .contextMenu {
+            Button("Reveal files in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([store.dir(for: meta.id)])
+            }
+            Divider()
+            Button("Delete note", role: .destructive) {
+                store.deleteNote(id: meta.id)
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "waveform")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text("No notes yet")
+                .font(.system(size: 15, weight: .semibold, design: .serif))
+            Text("Press New note before your next meeting. Earshot transcribes both sides on this Mac and writes the summary for you.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 70)
+    }
+
+    // MARK: - Floating ask bar
+
+    private var askBar: some View {
+        VStack(spacing: 10) {
+            if let askAnswer {
+                answerCard(askAnswer)
+            }
+            if let askError {
+                Text(askError)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red)
+            }
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField("Ask anything across your meetings", text: $askText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13.5))
+                            .onSubmit { runAsk(askText) }
+                        if isAsking {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 42)
+                    .glassEffect(.regular, in: .capsule)
+
+                    Button {
+                        runAsk("List the open action items from my recent meetings, grouped by meeting.")
+                    } label: {
+                        Label("Action items", systemImage: "checklist")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(isAsking)
+                    .help("Pull open action items from your recent notes")
+                }
+            }
+            .frame(maxWidth: 720)
+        }
+        .padding(.horizontal, 32)
+        .padding(.bottom, 14)
+        .padding(.top, 6)
+    }
+
+    private func answerCard(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("From your meetings")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    askAnswer = nil
+                    askError = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 11)
+            .padding(.bottom, 6)
+            ScrollView {
+                Text(markdownish(text))
+                    .font(.system(size: 13))
+                    .textSelection(.enabled)
+                    .lineSpacing(2.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
+            }
+            .frame(maxHeight: 220)
+        }
+        .frame(maxWidth: 720)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+    }
+
+    // MARK: - Data
 
     private var filteredNotes: [NoteMeta] {
         guard !searchText.isEmpty else { return store.notes }
@@ -114,113 +288,35 @@ struct MainWindowView: View {
             return (label, groups[day]!.sorted { $0.createdAt > $1.createdAt })
         }
     }
-}
 
-struct NoteRow: View {
-    let meta: NoteMeta
-    let isLive: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(meta.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Text(meta.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if isLive {
-                Image(systemName: "waveform")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.record)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-// Shown when no note is selected: global ask over all meetings.
-struct WelcomePane: View {
-    @EnvironmentObject var app: AppState
-    @EnvironmentObject var store: NoteStore
-    @EnvironmentObject var agent: AgentBridge
-
-    @State private var askText = ""
-    @State private var answer: String?
-    @State private var errorText: String?
-    @State private var isAsking = false
-
-    var body: some View {
-        VStack(spacing: 18) {
-            Spacer()
-            Image(systemName: "waveform")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("Earshot")
-                .font(.system(size: 24, weight: .semibold))
-            Text("Meeting notes that never leave your Mac.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-
-            if let answer {
-                ScrollView {
-                    Text(markdownish(answer))
-                        .font(.system(size: 13))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                }
-                .frame(maxWidth: 520, maxHeight: 240)
-                .card()
-            }
-            if let errorText {
-                Text(errorText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: 520)
-            }
-
-            HStack(spacing: 8) {
-                TextField("Ask across your meetings", text: $askText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13.5))
-                    .onSubmit { runAsk() }
-                if isAsking {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 40)
-            .frame(maxWidth: 460)
-            .glassEffect(.regular, in: .capsule)
-
-            Spacer()
-            Text("Opt+M starts a note from anywhere.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 18)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.windowBG)
-    }
-
-    private func runAsk() {
-        let question = askText.trimmingCharacters(in: .whitespaces)
-        guard !question.isEmpty, !isAsking else { return }
+    private func runAsk(_ question: String) {
+        let q = question.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty, !isAsking else { return }
+        askText = ""
         isAsking = true
-        answer = nil
-        errorText = nil
+        askAnswer = nil
+        askError = nil
         Task {
             let context = store.notes.prefix(10).map { ($0, store.loadSummary(noteID: $0.id)) }
             do {
-                answer = try await agent.run(prompt: AgentPrompts.globalAsk(question: question, notes: context))
+                askAnswer = try await agent.run(prompt: AgentPrompts.globalAsk(question: q, notes: context))
             } catch {
-                errorText = error.localizedDescription
+                askError = error.localizedDescription
             }
             isAsking = false
         }
+    }
+}
+
+struct HomeRowButtonStyle: ButtonStyle {
+    @State private var hovering = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.quaternary.opacity(configuration.isPressed ? 0.7 : (hovering ? 0.45 : 0)))
+            )
+            .onHover { hovering = $0 }
     }
 }
 

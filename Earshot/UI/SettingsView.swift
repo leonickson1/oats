@@ -2,81 +2,159 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
-// Native Settings window (Cmd+,). Every behavior Earshot has is visible and
-// explained here, in the user's own control.
+// Settings (Cmd+,): native controls, custom structure. One calm page of
+// floating cards, every behavior explained in place.
 struct SettingsView: View {
     var body: some View {
-        TabView {
-            GeneralSettings()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            IntelligenceSettings()
-                .tabItem { Label("Intelligence", systemImage: "brain") }
-            PermissionsSettings()
-                .tabItem { Label("Permissions", systemImage: "lock.shield") }
-            DataSettings()
-                .tabItem { Label("Your data", systemImage: "folder") }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Settings")
+                    .font(.system(size: 26, weight: .medium, design: .serif))
+                    .padding(.top, 18)
+                    .padding(.bottom, 4)
+
+                BehaviorCard()
+                IntelligenceCard()
+                PermissionsCard()
+                DataCard()
+
+                Color.clear.frame(height: 16)
+            }
+            .padding(.horizontal, 26)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 520)
+        .background(Theme.windowBG)
+        .frame(width: 620, height: 640)
     }
 }
 
-struct GeneralSettings: View {
+// Shared card scaffold: icon, title, one-line explainer, controls.
+struct SettingsCard<Content: View>: View {
+    let icon: String
+    let title: String
+    let explainer: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            Text(explainer)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(radius: 16)
+    }
+}
+
+private struct SettingsRow<Trailing: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            trailing
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+// MARK: - Behavior
+
+struct BehaviorCard: View {
     @EnvironmentObject var app: AppState
     @AppStorage("autoSummary") private var autoSummary = true
     @AppStorage("autoTitle") private var autoTitle = true
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Show floating controls", isOn: $app.hudVisible)
-                Toggle("Write the summary automatically when a recording stops", isOn: $autoSummary)
-                Toggle("Name notes automatically from the conversation", isOn: $autoTitle)
-            } footer: {
-                Text("Auto-naming looks at the transcript a minute or two in and titles the note. Editing the title yourself always wins; Earshot never overwrites it after that.")
+        SettingsCard(
+            icon: "slider.horizontal.3",
+            title: "Behavior",
+            explainer: "How Earshot acts around your meetings. Opt+M starts a note from anywhere."
+        ) {
+            SettingsRow(title: "Floating controls", subtitle: "The small lozenge at the bottom of your screen.") {
+                Toggle("", isOn: $app.hudVisible).toggleStyle(.switch).labelsHidden()
             }
-            Section("Shortcuts") {
-                LabeledContent("New meeting note (works anywhere)", value: "Opt M")
+            Divider().opacity(0.4)
+            SettingsRow(title: "Summarize automatically", subtitle: "Write the summary the moment a recording stops.") {
+                Toggle("", isOn: $autoSummary).toggleStyle(.switch).labelsHidden()
+            }
+            Divider().opacity(0.4)
+            SettingsRow(title: "Name notes automatically", subtitle: "Titles appear a minute or two in. Your own edits always win.") {
+                Toggle("", isOn: $autoTitle).toggleStyle(.switch).labelsHidden()
             }
         }
-        .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 }
 
-struct IntelligenceSettings: View {
+// MARK: - Intelligence
+
+struct IntelligenceCard: View {
     @EnvironmentObject var agent: AgentBridge
     @State private var testResult: String?
     @State private var isTesting = false
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Agent", selection: $agent.preference) {
+        SettingsCard(
+            icon: "brain",
+            title: "Intelligence",
+            explainer: "Summaries, titles, and questions run through an agent already on this Mac. No Earshot server, no API keys; transcripts are passed as plain text."
+        ) {
+            SettingsRow(title: "Agent", subtitle: "Found: \(agent.availability.summaryLine)") {
+                Picker("", selection: $agent.preference) {
                     ForEach(AgentKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
                     }
                 }
-                LabeledContent("Detected", value: agent.availability.summaryLine)
-                if agent.preference == .ollama || agent.availability.ollamaModel != nil {
-                    TextField("Ollama model", text: $agent.ollamaModel, prompt: Text("qwen3:4b"))
+                .labelsHidden()
+                .frame(width: 190)
+            }
+            if agent.preference == .ollama || agent.availability.ollamaModel != nil {
+                Divider().opacity(0.4)
+                SettingsRow(title: "Ollama model") {
+                    TextField("qwen3:4b", text: $agent.ollamaModel)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 190)
                 }
-                HStack {
-                    Button(isTesting ? "Testing" : "Test agent") { runTest() }
-                        .disabled(isTesting)
-                    Button("Refresh detection") { Task { await agent.detect() } }
-                    if let testResult {
-                        Text(testResult)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+            }
+            Divider().opacity(0.4)
+            HStack(spacing: 10) {
+                Button(isTesting ? "Testing" : "Test agent") { runTest() }
+                    .buttonStyle(.glass)
+                    .disabled(isTesting)
+                Button("Refresh detection") { Task { await agent.detect() } }
+                    .buttonStyle(.glass)
+                if let testResult {
+                    Text(testResult)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
-            } footer: {
-                Text("Summaries, titles, and questions run through an agent already on this Mac: Claude Code, Codex, or Ollama. Earshot has no server and no API keys. Transcripts are passed as plain text; nothing else is shared.")
+                Spacer()
             }
         }
-        .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 
     private func runTest() {
@@ -85,7 +163,7 @@ struct IntelligenceSettings: View {
         Task {
             do {
                 let reply = try await agent.run(prompt: "Reply with exactly: ready")
-                testResult = "Agent replied: \(reply.prefix(60))"
+                testResult = "Replied: \(reply.prefix(60))"
             } catch {
                 testResult = error.localizedDescription
             }
@@ -94,83 +172,67 @@ struct IntelligenceSettings: View {
     }
 }
 
-struct PermissionsSettings: View {
-    @State private var micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+// MARK: - Permissions
 
+struct PermissionsCard: View {
+    @State private var micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Form {
-            Section {
-                permissionRow(
-                    name: "Microphone",
-                    detail: "Hears your side of the meeting.",
-                    granted: micGranted,
-                    anchor: "Privacy_Microphone"
-                )
-                permissionRow(
-                    name: "System Audio Recording",
-                    detail: "Hears the other side of your call, without a bot. Asked on your first recording.",
-                    granted: nil,
-                    anchor: "Privacy_AudioCapture"
-                )
-                permissionRow(
-                    name: "Screen Recording",
-                    detail: "Only for the capture button (slides, shared screens). Asked on your first capture.",
-                    granted: nil,
-                    anchor: "Privacy_ScreenCapture"
-                )
-            } footer: {
-                Text("Earshot records only when you press Record, shows a visible state the whole time, and keeps everything on this Mac.")
-            }
+        SettingsCard(
+            icon: "lock.shield",
+            title: "Permissions",
+            explainer: "Earshot records only when you press Record, shows a visible state the whole time, and keeps everything on this Mac."
+        ) {
+            row("Microphone", "Hears your side of the meeting.", granted: micGranted, anchor: "Privacy_Microphone")
+            Divider().opacity(0.4)
+            row("System Audio Recording", "Hears the other side of your call, without a bot. Asked on your first recording.", granted: nil, anchor: "Privacy_AudioCapture")
+            Divider().opacity(0.4)
+            row("Screen Recording", "Only for the capture button. Asked on your first capture.", granted: nil, anchor: "Privacy_ScreenCapture")
         }
-        .formStyle(.grouped)
-        .padding(.vertical, 8)
         .onReceive(timer) { _ in
             micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         }
     }
 
-    private func permissionRow(name: String, detail: String, granted: Bool?, anchor: String) -> some View {
-        LabeledContent {
+    private func row(_ name: String, _ detail: String, granted: Bool?, anchor: String) -> some View {
+        SettingsRow(title: name, subtitle: detail) {
             HStack(spacing: 8) {
-                if let granted {
-                    Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(granted ? Color.green : Color.secondary)
+                if granted == true {
+                    Label("On", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.record)
                 }
                 Button("Open settings") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
                         NSWorkspace.shared.open(url)
                     }
                 }
+                .buttonStyle(.glass)
+                .controlSize(.small)
             }
-        } label: {
-            Text(name)
-            Text(detail)
         }
     }
 }
 
-struct DataSettings: View {
+// MARK: - Data
+
+struct DataCard: View {
     @EnvironmentObject var store: NoteStore
 
     var body: some View {
-        Form {
-            Section {
-                LabeledContent("Notes folder") {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([store.baseDir])
-                    }
+        SettingsCard(
+            icon: "folder",
+            title: "Your data",
+            explainer: "Each note is a folder of plain files: meta.json, transcript.jsonl, note.md, summary.md, chat.jsonl, and assets for captures. Grep them, sync them, back them up."
+        ) {
+            SettingsRow(title: "Notes folder", subtitle: store.baseDir.path) {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([store.baseDir])
                 }
-                Text(store.baseDir.path)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            } footer: {
-                Text("Each note is a folder of plain files: meta.json, transcript.jsonl, note.md, summary.md, chat.jsonl, and an assets folder for captures. Grep them, sync them, back them up. Deleting a note deletes its folder.")
+                .buttonStyle(.glass)
+                .controlSize(.small)
             }
         }
-        .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 }
