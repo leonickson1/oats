@@ -51,6 +51,7 @@ final class TranscriberPipeline {
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
         analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+        DebugLog.log("[\(label)] pipeline started, analyzerFormat sr=\(analyzerFormat?.sampleRate ?? -1)")
 
         let (stream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         inputBuilder = continuation
@@ -62,22 +63,30 @@ final class TranscriberPipeline {
                     let text = String(result.text.characters)
                     let isFinal = result.isFinal
                     guard !text.isEmpty else { continue }
+                    DebugLog.log("[\(self?.label ?? "?")] result final=\(isFinal): \(text.prefix(40))")
                     await MainActor.run { [weak self] in
                         self?.onResult?(text, isFinal)
                     }
                 }
             } catch {
-                // Stream ended or the analyzer was cancelled; nothing to do.
+                DebugLog.log("[\(self?.label ?? "?")] results stream error: \(error)")
             }
         }
 
         try await analyzer.start(inputSequence: stream)
     }
 
+    private var fedCount = 0
+
     // Called from audio threads; conversion is cheap relative to capture cadence.
     func feed(_ buffer: AVAudioPCMBuffer) {
         guard let inputBuilder, let analyzerFormat else { return }
-        guard let converted = convert(buffer, to: analyzerFormat) else { return }
+        guard let converted = convert(buffer, to: analyzerFormat) else {
+            if fedCount == 0 { DebugLog.log("[\(label)] convert returned nil") }
+            return
+        }
+        fedCount += 1
+        if fedCount == 1 || fedCount == 50 { DebugLog.log("[\(label)] fed buffer #\(fedCount)") }
         inputBuilder.yield(AnalyzerInput(buffer: converted))
     }
 

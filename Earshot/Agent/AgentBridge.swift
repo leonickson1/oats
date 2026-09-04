@@ -42,6 +42,7 @@ final class AgentBridge: ObservableObject {
         didSet { UserDefaults.standard.set(ollamaModel, forKey: "ollamaModel") }
     }
     @Published private(set) var availability = AgentAvailability()
+    @Published private(set) var ollamaModels: [String] = []
     @Published private(set) var isBusy = false
 
     init() {
@@ -57,8 +58,11 @@ final class AgentBridge: ObservableObject {
         result.claudePath = Self.findExecutable("claude")
         result.codexPath = Self.findExecutable("codex")
         if let models = await Self.ollamaModels() {
+            ollamaModels = models
             let preferred = ollamaModel
             result.ollamaModel = models.contains(preferred) && !preferred.isEmpty ? preferred : models.first
+        } else {
+            ollamaModels = []
         }
         availability = result
         if ollamaModel.isEmpty, let m = result.ollamaModel { ollamaModel = m }

@@ -35,10 +35,13 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Notes")
-                    .font(.system(size: 30, weight: .medium, design: .serif))
-                    .padding(.top, 20)
-                    .padding(.bottom, 18)
+                HStack(spacing: 11) {
+                    EarshotLogoView(color: .primary, size: 26)
+                    Text("Earshot")
+                        .font(.system(size: 30, weight: .medium, design: .serif))
+                }
+                .padding(.top, 20)
+                .padding(.bottom, 18)
 
                 if recorder.isActive, let liveID = recorder.currentNoteID {
                     liveCard(liveID)

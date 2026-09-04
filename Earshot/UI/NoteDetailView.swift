@@ -344,6 +344,53 @@ struct NoteDetailView: View {
     // MARK: - Chat
 
     private var chatSection: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.text.bubble.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Text("Chat")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                if agent.activeAgentName == "no agent" {
+                    SettingsLink {
+                        Label("Connect an AI", systemImage: "link")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text("via \(agent.activeAgentName)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                Button {
+                    clearChat()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close chat")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            chatScroll
+        }
+        .card(radius: 16)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 4)
+        .frame(maxWidth: 728)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var chatScroll: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -382,19 +429,20 @@ struct NoteDetailView: View {
                         .padding(.top, 10)
                     }
                 }
-                .padding(18)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 250)
-            .card(radius: 16)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 4)
-            .frame(maxWidth: 728)
-            .frame(maxWidth: .infinity)
+            .frame(height: 240)
             .onChange(of: chat.count) {
                 if let last = chat.last { withAnimation { proxy.scrollTo(last.id) } }
             }
         }
+    }
+
+    private func clearChat() {
+        chat = []
+        store.clearChat(noteID: noteID)
     }
 
     // MARK: - Floating bottom bar
@@ -421,6 +469,11 @@ struct NoteDetailView: View {
                             barButton(icon: "stop.fill", label: "Stop", help: "Stop and summarize") {
                                 app.stopMeetingNote()
                             }
+                        }
+                    } else if !recorder.isActive && !displayedSegments.isEmpty {
+                        // A finished note can keep recording again onto the same transcript.
+                        barButton(icon: "record.circle", label: "Resume", help: "Record more into this note") {
+                            app.resumeMeetingNote(id: noteID)
                         }
                     }
 

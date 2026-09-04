@@ -44,8 +44,7 @@ struct HUDView: View {
     // MARK: - Idle
 
     private var idleLozenge: some View {
-        EarshotMark(color: .secondary, lineWidth: 1.4)
-            .frame(height: 15)
+        EarshotLogoView(color: .secondary, size: 16)
             .frame(width: 46, height: 26)
             .contentShape(Capsule())
             .glassEffect(.regular, in: .capsule)
@@ -94,8 +93,7 @@ struct HUDView: View {
 
     private var recordingLozenge: some View {
         HStack(spacing: 8) {
-            EarshotMark(color: recorder.isPaused ? .secondary : Theme.record, lineWidth: 1.4)
-                .frame(height: 13)
+            EarshotLogoView(color: recorder.isPaused ? .secondary : Theme.record, size: 14)
             if recorder.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 9, weight: .semibold))

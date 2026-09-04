@@ -156,6 +156,10 @@ final class NoteStore: ObservableObject {
         loadLines(noteID: noteID, file: "chat.jsonl")
     }
 
+    func clearChat(noteID: UUID) {
+        try? FileManager.default.removeItem(at: dir(for: noteID).appendingPathComponent("chat.jsonl"))
+    }
+
     // MARK: - jsonl helpers
 
     private func appendLine<T: Encodable>(noteID: UUID, file: String, value: T) {

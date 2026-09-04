@@ -56,13 +56,20 @@ final class MeetingRecorder: ObservableObject {
     // MARK: - Lifecycle
 
     func start() async -> UUID? {
+        await beginCapture(existingNoteID: nil)
+    }
+
+    // Reopens a stopped note and keeps appending to its transcript.
+    func resumeNote(id: UUID) async -> UUID? {
+        guard state == .idle || isFailed else { return currentNoteID }
+        return await beginCapture(existingNoteID: id)
+    }
+
+    private func beginCapture(existingNoteID: UUID?) async -> UUID? {
         guard state == .idle || isFailed else { return currentNoteID }
         state = .starting
-        segments = []
         volatileMe = ""
         volatileThem = ""
-        elapsed = 0
-        accumulated = 0
         levels = []
         lastTitleAttempt = nil
 
@@ -71,19 +78,37 @@ final class MeetingRecorder: ObservableObject {
             return nil
         }
 
-        // Create the note first so the user sees "Preparing" instead of nothing
-        // while the on-device model downloads on first use.
-        let note = store.createNote()
+        let note: NoteMeta
+        if let existingNoteID, let existing = store.meta(id: existingNoteID) {
+            note = existing
+            segments = store.loadSegments(noteID: existingNoteID)
+            accumulated = existing.duration
+            elapsed = existing.duration
+        } else {
+            // Create the note first so the user sees "Preparing" instead of nothing
+            // while the on-device model downloads on first use.
+            note = store.createNote()
+            segments = []
+            accumulated = 0
+            elapsed = 0
+        }
         currentNoteID = note.id
 
+        DebugLog.reset()
+        DebugLog.log("recorder.begin note=\(note.id) resume=\(existingNoteID != nil)")
         let locale = await TranscriberPipeline.supportedLocale(matching: Locale.current) ?? Locale(identifier: "en-US")
         do {
             try await TranscriberPipeline.ensureAssets(locale: locale)
         } catch {
             state = .failed("Could not prepare the on-device speech model: \(error.localizedDescription)")
+            if existingNoteID == nil {
+                store.deleteNote(id: note.id)
+            }
             currentNoteID = nil
-            store.deleteNote(id: note.id)
             return nil
+        }
+        if existingNoteID != nil {
+            commit(channel: "system", text: "Resumed")
         }
 
         let mePipe = TranscriberPipeline(label: "me")
@@ -125,9 +150,11 @@ final class MeetingRecorder: ObservableObject {
         do {
             try tap.start()
             systemAudioUnavailable = false
+            DebugLog.log("system audio tap started")
         } catch {
             // Mic-only still works (in-person meetings); the note view shows a hint.
             systemAudioUnavailable = true
+            DebugLog.log("system audio tap failed: \(error)")
         }
 
         resumedAt = Date()

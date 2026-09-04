@@ -121,32 +121,49 @@ struct IntelligenceCard: View {
         SettingsCard(
             icon: "brain",
             title: "Intelligence",
-            explainer: "Summaries, titles, and questions run through an agent already on this Mac. No Earshot server, no API keys; transcripts are passed as plain text."
+            explainer: "Summaries, titles, and questions run through an AI already on this Mac. No Earshot server, no API keys; transcripts are passed as plain text."
         ) {
-            SettingsRow(title: "Agent", subtitle: "Found: \(agent.availability.summaryLine)") {
+            // What is installed, each with a live connection state.
+            connectionRow("Claude Code", detail: "claude", connected: agent.availability.claudePath != nil)
+            Divider().opacity(0.4)
+            connectionRow("Codex", detail: "codex", connected: agent.availability.codexPath != nil)
+            Divider().opacity(0.4)
+            connectionRow("Ollama", detail: agent.ollamaModels.isEmpty ? "not running" : "\(agent.ollamaModels.count) models", connected: !agent.ollamaModels.isEmpty)
+
+            Divider().opacity(0.4)
+            SettingsRow(title: "Use", subtitle: "Which one Earshot asks. Auto picks the first available.") {
                 Picker("", selection: $agent.preference) {
                     ForEach(AgentKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
                     }
                 }
                 .labelsHidden()
-                .frame(width: 190)
+                .frame(width: 200)
             }
-            if agent.preference == .ollama || agent.availability.ollamaModel != nil {
+
+            // Once Ollama is connected, choose from every model it has.
+            if !agent.ollamaModels.isEmpty && (agent.preference == .ollama || agent.preference == .auto) {
                 Divider().opacity(0.4)
-                SettingsRow(title: "Ollama model") {
-                    TextField("qwen3:4b", text: $agent.ollamaModel)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 190)
+                SettingsRow(title: "Ollama model", subtitle: "Pick which local model answers.") {
+                    Picker("", selection: $agent.ollamaModel) {
+                        ForEach(agent.ollamaModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 200)
                 }
             }
+
             Divider().opacity(0.4)
             HStack(spacing: 10) {
                 Button(isTesting ? "Testing" : "Test agent") { runTest() }
                     .buttonStyle(.glass)
+                    .controlSize(.large)
                     .disabled(isTesting)
-                Button("Refresh detection") { Task { await agent.detect() } }
+                Button("Refresh") { Task { await agent.detect() } }
                     .buttonStyle(.glass)
+                    .controlSize(.large)
                 if let testResult {
                     Text(testResult)
                         .font(.system(size: 11.5))
@@ -155,6 +172,14 @@ struct IntelligenceCard: View {
                 }
                 Spacer()
             }
+        }
+    }
+
+    private func connectionRow(_ name: String, detail: String, connected: Bool) -> some View {
+        SettingsRow(title: name, subtitle: detail) {
+            Label(connected ? "Connected" : "Not found", systemImage: connected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(connected ? Theme.record : Color.secondary)
         }
     }
 

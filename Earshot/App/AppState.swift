@@ -115,6 +115,15 @@ final class AppState: ObservableObject {
         Task { await recorder.stop() }
     }
 
+    func resumeMeetingNote(id: UUID) {
+        guard !recorder.isActive else { return }
+        Task {
+            _ = await recorder.resumeNote(id: id)
+            notePath = [id]
+            showMainWindow()
+        }
+    }
+
     func showMainWindow() {
         WindowManager.shared.showMain(app: self)
         NSApp.activate(ignoringOtherApps: true)
