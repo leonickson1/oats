@@ -15,6 +15,7 @@ struct SettingsView: View {
 
                 BehaviorCard()
                 IntelligenceCard()
+                CalendarCard()
                 PermissionsCard()
                 DataCard()
 
@@ -172,6 +173,47 @@ struct IntelligenceCard: View {
     }
 }
 
+// MARK: - Calendar
+
+struct CalendarCard: View {
+    @EnvironmentObject var calendar: CalendarManager
+
+    var body: some View {
+        SettingsCard(
+            icon: "calendar",
+            title: "Calendar",
+            explainer: "Shows today's meetings on Home so you can start a pre-titled note with one click. Read-only, on this Mac; nothing syncs anywhere."
+        ) {
+            SettingsRow(title: "Show upcoming meetings on Home") {
+                Toggle("", isOn: $calendar.showUpcoming).toggleStyle(.switch).labelsHidden()
+            }
+            Divider().opacity(0.4)
+            SettingsRow(title: "Access", subtitle: statusText) {
+                switch calendar.status {
+                case .notDetermined:
+                    Button("Connect calendar") { calendar.connect() }
+                        .buttonStyle(.glassProminent)
+                case .denied:
+                    Button("Open settings") { calendar.openSystemSettings() }
+                        .buttonStyle(.glass)
+                case .authorized:
+                    Label("On", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.record)
+                }
+            }
+        }
+    }
+
+    private var statusText: String {
+        switch calendar.status {
+        case .notDetermined: return "Not connected yet."
+        case .denied: return "Turned off in System Settings."
+        case .authorized: return "Connected to the calendars on this Mac."
+        }
+    }
+}
+
 // MARK: - Permissions
 
 struct PermissionsCard: View {
@@ -209,7 +251,7 @@ struct PermissionsCard: View {
                     }
                 }
                 .buttonStyle(.glass)
-                .controlSize(.small)
+                .controlSize(.large)
             }
         }
     }
@@ -231,7 +273,7 @@ struct DataCard: View {
                     NSWorkspace.shared.activateFileViewerSelecting([store.baseDir])
                 }
                 .buttonStyle(.glass)
-                .controlSize(.small)
+                .controlSize(.large)
             }
         }
     }

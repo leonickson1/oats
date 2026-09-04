@@ -28,6 +28,8 @@
 	<string>Earshot uses the microphone to transcribe your voice on this Mac. Audio never leaves your device.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Earshot captures system audio to transcribe the other side of your calls on this Mac. No bot joins your meetings and audio never leaves your device.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Earshot shows your upcoming meetings so you can start a note for one with a single click. Calendar data stays on this Mac.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

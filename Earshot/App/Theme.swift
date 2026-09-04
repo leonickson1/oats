@@ -83,6 +83,37 @@ struct DashedMarker: View {
     }
 }
 
+// The Earshot mark: a listener dot with two hearing arcs. Drawn, not an SF symbol.
+struct EarshotMark: View {
+    var color: Color = .primary
+    var lineWidth: CGFloat = 1.6
+
+    var body: some View {
+        GeometryReader { geo in
+            let h = geo.size.height
+            let w = geo.size.width
+            let cx = w * 0.22
+            let cy = h / 2
+            let dotR = h * 0.14
+            Path { p in
+                p.addEllipse(in: CGRect(x: cx - dotR, y: cy - dotR, width: dotR * 2, height: dotR * 2))
+            }
+            .fill(color)
+            Path { p in
+                p.addArc(center: CGPoint(x: cx, y: cy), radius: h * 0.34,
+                         startAngle: .degrees(-42), endAngle: .degrees(42), clockwise: false)
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            Path { p in
+                p.addArc(center: CGPoint(x: cx, y: cy), radius: h * 0.58,
+                         startAngle: .degrees(-38), endAngle: .degrees(38), clockwise: false)
+            }
+            .stroke(color.opacity(0.65), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+        }
+        .aspectRatio(1.15, contentMode: .fit)
+    }
+}
+
 // Live waveform bars driven by real audio levels. Flat when silent, never fake.
 struct WaveformBars: View {
     var levels: [Float]

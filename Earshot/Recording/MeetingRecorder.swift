@@ -25,6 +25,7 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var currentNoteID: UUID?
     @Published private(set) var isSummarizing = false
     @Published private(set) var systemAudioUnavailable = false
+    @Published private(set) var micLooksSilent = false
 
     var isActive: Bool { state == .recording || state == .starting || state == .paused }
     var isPaused: Bool { state == .paused }
@@ -112,7 +113,9 @@ final class MeetingRecorder: ObservableObject {
         tap.onBuffer = { [weak themPipe] buffer in themPipe?.feed(buffer) }
 
         do {
-            try mic.start(echoCancellation: true)
+            // Raw capture. Voice-processing AEC on macOS silences the input
+            // when no output is rendering and fights the call app's own AEC.
+            try mic.start(echoCancellation: false)
         } catch {
             state = .failed("Could not start the microphone: \(error.localizedDescription)")
             await teardownPipelines()
@@ -149,7 +152,7 @@ final class MeetingRecorder: ObservableObject {
     func resume() {
         guard state == .paused else { return }
         do {
-            try mic.start(echoCancellation: true)
+            try mic.start(echoCancellation: false)
         } catch {
             state = .failed("Could not restart the microphone: \(error.localizedDescription)")
             return
@@ -195,6 +198,13 @@ final class MeetingRecorder: ObservableObject {
     private func tick() {
         guard state == .recording else { return }
         if let resumedAt { elapsed = accumulated + Date().timeIntervalSince(resumedAt) }
+        // Surface a dead microphone instead of recording silence for an hour.
+        if elapsed > 8, levels.count >= 12 {
+            let peak = levels.suffix(16).max() ?? 0
+            micLooksSilent = peak < 0.0015 && segments.isEmpty && volatileMe.isEmpty
+        } else {
+            micLooksSilent = false
+        }
         maybeAutoTitle()
     }
 

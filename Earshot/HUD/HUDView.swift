@@ -44,10 +44,9 @@ struct HUDView: View {
     // MARK: - Idle
 
     private var idleLozenge: some View {
-        Image(systemName: "waveform")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .frame(width: 44, height: 24)
+        EarshotMark(color: .secondary, lineWidth: 1.4)
+            .frame(height: 15)
+            .frame(width: 46, height: 26)
             .contentShape(Capsule())
             .glassEffect(.regular, in: .capsule)
             .glassEffectID("core", in: glassNS)
@@ -94,7 +93,9 @@ struct HUDView: View {
     // MARK: - Recording
 
     private var recordingLozenge: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
+            EarshotMark(color: recorder.isPaused ? .secondary : Theme.record, lineWidth: 1.4)
+                .frame(height: 13)
             if recorder.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 9, weight: .semibold))
@@ -107,8 +108,8 @@ struct HUDView: View {
                 .monospacedDigit()
                 .foregroundStyle(.primary)
         }
-        .padding(.horizontal, 11)
-        .frame(height: 26)
+        .padding(.horizontal, 12)
+        .frame(height: 28)
         .contentShape(Capsule())
         .glassEffect(.regular, in: .capsule)
         .glassEffectID("core", in: glassNS)

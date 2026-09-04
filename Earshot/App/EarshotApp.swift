@@ -19,6 +19,7 @@ struct EarshotApp: App {
                 .environmentObject(AppState.shared)
                 .environmentObject(AppState.shared.agent)
                 .environmentObject(AppState.shared.store)
+                .environmentObject(AppState.shared.calendar)
         }
     }
 }

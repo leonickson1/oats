@@ -24,6 +24,7 @@ struct HomeView: View {
     @EnvironmentObject var store: NoteStore
     @EnvironmentObject var recorder: MeetingRecorder
     @EnvironmentObject var agent: AgentBridge
+    @EnvironmentObject var calendar: CalendarManager
 
     @State private var searchText = ""
     @State private var askText = ""
@@ -42,6 +43,11 @@ struct HomeView: View {
                 if recorder.isActive, let liveID = recorder.currentNoteID {
                     liveCard(liveID)
                         .padding(.bottom, 20)
+                }
+
+                if calendar.showUpcoming && !recorder.isActive {
+                    ComingUpCard()
+                        .padding(.bottom, 8)
                 }
 
                 if store.notes.isEmpty {
@@ -203,24 +209,27 @@ struct HomeView: View {
                     HStack(spacing: 8) {
                         TextField("Ask anything across your meetings", text: $askText)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 13.5))
+                            .font(.system(size: 14))
                             .onSubmit { runAsk(askText) }
                         if isAsking {
                             ProgressView().controlSize(.small)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 42)
+                    .padding(.horizontal, 18)
+                    .frame(height: 48)
                     .glassEffect(.regular, in: .capsule)
 
                     Button {
                         runAsk("List the open action items from my recent meetings, grouped by meeting.")
                     } label: {
                         Label("Action items", systemImage: "checklist")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.vertical, 4)
                     }
                     .buttonStyle(.glass)
+                    .controlSize(.large)
                     .disabled(isAsking)
+                    .fixedSize()
                     .help("Pull open action items from your recent notes")
                 }
             }
@@ -305,6 +314,92 @@ struct HomeView: View {
             }
             isAsking = false
         }
+    }
+}
+
+// "Coming up": today's meetings from the native calendar, one click to record.
+struct ComingUpCard: View {
+    @EnvironmentObject var app: AppState
+    @EnvironmentObject var calendar: CalendarManager
+    @EnvironmentObject var recorder: MeetingRecorder
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(spacing: 0) {
+                    Text(Date().formatted(.dateTime.day()))
+                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                    Text(Date().formatted(.dateTime.weekday(.abbreviated)))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 40)
+
+                switch calendar.status {
+                case .notDetermined:
+                    Text("See today's meetings here and start a note for one with a single click.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Connect calendar") { calendar.connect() }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.large)
+                case .denied:
+                    Text("Calendar access is off. Turn it on to see your meetings here.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open settings") { calendar.openSystemSettings() }
+                        .buttonStyle(.glass)
+                        .controlSize(.large)
+                case .authorized:
+                    if calendar.upcoming.isEmpty {
+                        Text("No more meetings today.")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+
+            if calendar.status == .authorized && !calendar.upcoming.isEmpty {
+                Divider().opacity(0.4)
+                VStack(spacing: 0) {
+                    ForEach(calendar.upcoming, id: \.eventIdentifier) { event in
+                        HStack(spacing: 11) {
+                            Circle()
+                                .fill(Color(nsColor: event.calendar?.color ?? .systemGray))
+                                .frame(width: 7, height: 7)
+                            Text(event.startDate.formatted(date: .omitted, time: .shortened))
+                                .font(.system(size: 12, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 66, alignment: .leading)
+                            Text(event.title ?? "Untitled event")
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                            Spacer()
+                            Button {
+                                app.startMeetingNote(title: event.title)
+                            } label: {
+                                Label("Record", systemImage: "record.circle")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(recorder.isActive)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                    }
+                }
+                .padding(.bottom, 5)
+            }
+        }
+        .card(radius: 16)
     }
 }
 

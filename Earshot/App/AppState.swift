@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     let agent: AgentBridge
     let recorder: MeetingRecorder
     let capture: CaptureManager
+    let calendar: CalendarManager
 
     // Navigation: the home screen pushes note detail onto this path.
     @Published var notePath: [UUID] = []
@@ -31,6 +32,7 @@ final class AppState: ObservableObject {
         self.agent = agent
         self.recorder = MeetingRecorder(store: store, agent: agent)
         self.capture = CaptureManager(store: store)
+        self.calendar = CalendarManager()
         self.hudVisible = UserDefaults.standard.object(forKey: "hudVisible") as? Bool ?? true
     }
 
@@ -56,10 +58,23 @@ final class AppState: ObservableObject {
             try? await TranscriberPipeline.ensureAssets(locale: locale)
         }
 
+        // The floating lozenge is for when you are elsewhere; inside Earshot
+        // the window has its own controls, so the HUD steps aside.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in AppState.shared.refreshHUD() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in AppState.shared.refreshHUD() }
+        }
+
         if !UserDefaults.standard.bool(forKey: "didOnboard") {
             showOnboarding = true
         }
         showMainWindow()
+    }
+
+    func refreshHUD() {
+        updateHUDVisibility()
     }
 
     func finishOnboarding() {
@@ -69,7 +84,7 @@ final class AppState: ObservableObject {
 
     private func updateHUDVisibility() {
         guard let hudPanel else { return }
-        if hudVisible {
+        if hudVisible && !NSApp.isActive {
             hudPanel.positionBottomCenter()
             hudPanel.orderFrontRegardless()
         } else {
@@ -79,10 +94,15 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
-    func startMeetingNote() {
+    func startMeetingNote(title: String? = nil) {
         guard !recorder.isActive else { return }
         Task {
             if let id = await recorder.start() {
+                if let title, !title.isEmpty, var meta = store.meta(id: id) {
+                    meta.title = title
+                    meta.titleLocked = true
+                    store.save(meta: meta)
+                }
                 notePath = [id]
                 showMainWindow()
             } else {

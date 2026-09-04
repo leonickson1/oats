@@ -52,6 +52,7 @@ struct NoteDetailView: View {
                     volatileThem: isLiveNote ? recorder.volatileThem : "",
                     elapsed: isLiveNote ? recorder.elapsed : (store.meta(id: noteID)?.duration ?? 0),
                     systemAudioUnavailable: recorder.systemAudioUnavailable,
+                    micLooksSilent: recorder.micLooksSilent,
                     canGenerateSummary: !isLiveNote && store.loadSummary(noteID: noteID).isEmpty && !displayedSegments.isEmpty && !recorder.isSummarizing,
                     onGenerateSummary: {
                         tab = .summary
@@ -345,18 +346,31 @@ struct NoteDetailView: View {
     private var chatSection: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(chat) { message in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(message.role == "user" ? "You" : "Assistant")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(chat.enumerated()), id: \.element.id) { index, message in
+                        if message.role == "user" {
+                            if index > 0 {
+                                Divider().opacity(0.35).padding(.vertical, 12)
+                            }
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "arrow.turn.down.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 3)
+                                Text(message.text)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.bottom, 8)
+                        } else {
                             Text(markdownish(message.text))
-                                .font(.system(size: 13))
+                                .font(.system(size: 13.5))
+                                .lineSpacing(3.5)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .id(message.id)
+                        Color.clear.frame(height: 0).id(message.id)
                     }
                     if isAsking {
                         HStack(spacing: 8) {
@@ -365,14 +379,18 @@ struct NoteDetailView: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(.tertiary)
                         }
+                        .padding(.top, 10)
                     }
                 }
-                .padding(14)
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 160)
-            .card()
+            .frame(height: 250)
+            .card(radius: 16)
             .padding(.horizontal, 24)
             .padding(.bottom, 4)
+            .frame(maxWidth: 728)
+            .frame(maxWidth: .infinity)
             .onChange(of: chat.count) {
                 if let last = chat.last { withAnimation { proxy.scrollTo(last.id) } }
             }
@@ -382,56 +400,34 @@ struct NoteDetailView: View {
     // MARK: - Floating bottom bar
 
     private var bottomBar: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 9) {
+            if !displayedSegments.isEmpty && !isAsking {
+                recipeChips
+            }
             Text("Always get consent when transcribing others.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
+            GlassEffectContainer(spacing: 9) {
+                HStack(spacing: 9) {
                     if isLiveNote {
                         if recorder.isPaused {
-                            Button {
+                            barButton(icon: "record.circle", label: "Resume", help: "Resume recording") {
                                 recorder.resume()
-                            } label: {
-                                HStack(spacing: 7) {
-                                    Image(systemName: "record.circle")
-                                        .foregroundStyle(Theme.record)
-                                    Text("Resume")
-                                        .fontWeight(.semibold)
-                                }
                             }
-                            .buttonStyle(.glass)
-                            .controlSize(.large)
                         } else {
-                            Button {
+                            barButton(icon: "pause.fill", label: nil, help: "Pause") {
                                 recorder.pause()
-                            } label: {
-                                Image(systemName: "pause.fill")
                             }
-                            .buttonStyle(.glass)
-                            .controlSize(.large)
-                            .help("Pause")
-
-                            Button {
+                            barButton(icon: "stop.fill", label: "Stop", help: "Stop and summarize") {
                                 app.stopMeetingNote()
-                            } label: {
-                                HStack(spacing: 7) {
-                                    Image(systemName: "stop.fill")
-                                        .foregroundStyle(Theme.record)
-                                    Text("Stop")
-                                        .fontWeight(.semibold)
-                                }
                             }
-                            .buttonStyle(.glass)
-                            .controlSize(.large)
-                            .help("Stop and summarize")
                         }
                     }
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         TextField("Ask anything", text: $askText)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 13.5))
+                            .font(.system(size: 14))
                             .onSubmit { ask(askText) }
                         if isAsking {
                             ProgressView().controlSize(.small)
@@ -440,25 +436,75 @@ struct NoteDetailView: View {
                                 ask("What did I miss?")
                             } label: {
                                 Text("What did I miss?")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, 13)
+                                    .padding(.vertical, 8)
                                     .background(.quaternary.opacity(0.6), in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.leading, 16)
-                    .padding(.trailing, 6)
-                    .frame(height: 42)
+                    .padding(.leading, 18)
+                    .padding(.trailing, 7)
+                    .frame(height: 48)
                     .glassEffect(.regular, in: .capsule)
                 }
             }
-            .frame(maxWidth: 680)
+            .frame(maxWidth: 728)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 12)
+        .padding(.bottom, 13)
         .padding(.top, 4)
+    }
+
+    private func barButton(icon: String, label: String?, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.record)
+                if let label {
+                    Text(label)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+            }
+            .padding(.horizontal, label == nil ? 0 : 19)
+            .frame(width: label == nil ? 48 : nil, height: 48)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .help(help)
+    }
+
+    // Canned questions, Granola-recipe style. Real prompts, no dead chrome.
+    private var recipeChips: some View {
+        HStack(spacing: 8) {
+            recipeChip("Write follow-up email", icon: "envelope") {
+                ask("Draft a short follow-up email for this meeting: one line of context, a few bullet recap, then action items with owners. Plain text, ready to paste.")
+            }
+            recipeChip("List action items", icon: "checklist") {
+                ask("List every action item from this meeting as \"- [owner] task\". If there are none, say so plainly.")
+            }
+            recipeChip("Write TLDR", icon: "text.alignleft") {
+                ask("Write a three sentence TLDR of this meeting.")
+            }
+        }
+        .frame(maxWidth: 728, alignment: .leading)
+    }
+
+    private func recipeChip(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: icon)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .buttonStyle(.glass)
+        .disabled(isAsking)
     }
 
     private func ask(_ question: String) {
@@ -505,6 +551,7 @@ struct TranscriptPane: View {
     let volatileThem: String
     let elapsed: TimeInterval
     let systemAudioUnavailable: Bool
+    let micLooksSilent: Bool
     let canGenerateSummary: Bool
     let onGenerateSummary: () -> Void
 
@@ -567,11 +614,9 @@ struct TranscriptPane: View {
 
             if isLive {
                 HStack {
-                    Text(systemAudioUnavailable
-                         ? "System audio is off; only your mic is heard. Allow System Audio Recording in Privacy & Security."
-                         : "Transcribing on this Mac. Nothing leaves your device.")
+                    Text(statusLine)
                         .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(micLooksSilent ? Color.orange : Color.secondary)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -616,6 +661,16 @@ struct TranscriptPane: View {
         while previousIndex >= 0, spoken[previousIndex].channel == "system" { previousIndex -= 1 }
         guard previousIndex >= 0 else { return true }
         return spoken[previousIndex].channel != current
+    }
+
+    private var statusLine: String {
+        if micLooksSilent {
+            return "The microphone looks silent. Check the input device, its volume, or whether another app holds it."
+        }
+        if systemAudioUnavailable {
+            return "System audio is off; only your mic is heard. Allow System Audio Recording in Privacy & Security."
+        }
+        return "Transcribing on this Mac. Nothing leaves your device."
     }
 
     private func bubble(_ text: String, dim: Bool) -> some View {
