@@ -13,6 +13,13 @@ struct EarshotApp: App {
         } label: {
             Image(systemName: "waveform")
         }
+
+        Settings {
+            SettingsView()
+                .environmentObject(AppState.shared)
+                .environmentObject(AppState.shared.agent)
+                .environmentObject(AppState.shared.store)
+        }
     }
 }
 
@@ -27,7 +34,6 @@ struct MenuBarContent: View {
             }
         }
         .keyboardShortcut("m", modifiers: .option)
-        Button("Toggle dictation") { AppState.shared.dictation.toggle() }
         Divider()
         Button(AppState.shared.hudVisible ? "Hide floating controls" : "Show floating controls") {
             AppState.shared.hudVisible.toggle()
@@ -40,6 +46,10 @@ struct MenuBarContent: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if ProcessInfo.processInfo.environment["EARSHOT_SELFTEST_AUDIO"] != nil {
+            SelfTest.runIfRequested()
+            return
+        }
         NSApp.setActivationPolicy(.regular)
         AppState.shared.bootstrap()
         NSApp.activate(ignoringOtherApps: true)

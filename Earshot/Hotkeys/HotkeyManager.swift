@@ -2,13 +2,11 @@ import Foundation
 import Carbon.HIToolbox
 
 // Global hotkeys via Carbon (reliable, consumable, no Accessibility needed):
-//   Opt+M      new meeting note
-//   Opt+Period toggle dictation
+//   Opt+M  new meeting note (or open the live one)
 final class HotkeyManager {
     static let shared = HotkeyManager()
 
     var onNewNote: (() -> Void)?
-    var onDictationToggle: (() -> Void)?
 
     private var hotKeyRefs: [EventHotKeyRef?] = []
     private var handlerRef: EventHandlerRef?
@@ -36,11 +34,7 @@ final class HotkeyManager {
                 )
                 let id = hotKeyID.id
                 DispatchQueue.main.async {
-                    switch id {
-                    case 1: HotkeyManager.shared.onNewNote?()
-                    case 2: HotkeyManager.shared.onDictationToggle?()
-                    default: break
-                    }
+                    if id == 1 { HotkeyManager.shared.onNewNote?() }
                 }
                 return noErr
             },
@@ -60,15 +54,6 @@ final class HotkeyManager {
             0,
             &newNoteRef
         )
-        var dictationRef: EventHotKeyRef?
-        RegisterEventHotKey(
-            UInt32(kVK_ANSI_Period),
-            UInt32(optionKey),
-            EventHotKeyID(signature: signature, id: 2),
-            GetEventDispatcherTarget(),
-            0,
-            &dictationRef
-        )
-        hotKeyRefs = [newNoteRef, dictationRef]
+        hotKeyRefs = [newNoteRef]
     }
 }

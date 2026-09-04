@@ -18,8 +18,9 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         INFOPLIST_FILE: Earshot/Info.plist
         GENERATE_INFOPLIST_FILE: false
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "838ASYRYR5"
         CODE_SIGN_ENTITLEMENTS: Earshot/Earshot.entitlements
         ENABLE_HARDENED_RUNTIME: false
         ENABLE_APP_SANDBOX: false

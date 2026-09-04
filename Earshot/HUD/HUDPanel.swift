@@ -23,9 +23,16 @@ final class HUDPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
 
         let hosting = NSHostingView(rootView: content)
-        hosting.frame = contentRect(forFrameRect: frame)
-        hosting.autoresizingMask = [.width, .height]
+        // The panel hugs its SwiftUI content, so transparent dead zones never
+        // swallow clicks meant for the app behind it.
+        hosting.sizingOptions = [.preferredContentSize]
         contentView = hosting
+
+        NotificationCenter.default.addObserver(
+            forObject: self, name: NSWindow.didResizeNotification
+        ) { [weak self] in
+            self?.positionBottomCenter()
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -37,7 +44,13 @@ final class HUDPanel: NSPanel {
         let size = frame.size
         setFrameOrigin(NSPoint(
             x: visible.midX - size.width / 2,
-            y: visible.minY + 14
+            y: visible.minY + 10
         ))
+    }
+}
+
+private extension NotificationCenter {
+    func addObserver(forObject object: Any, name: NSNotification.Name, handler: @escaping () -> Void) {
+        addObserver(forName: name, object: object, queue: .main) { _ in handler() }
     }
 }

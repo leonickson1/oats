@@ -235,9 +235,9 @@ enum AgentPrompts {
     Style rules: plain text or simple markdown. Do not use em dashes anywhere; use commas or periods instead. Be concrete and concise. Never invent facts that are not in the transcript.
     """
 
-    static func transcriptBlock(segments: [TranscriptSegment], thoughts: String) -> String {
+    static func transcriptBlock(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = []) -> String {
         var lines: [String] = []
-        for segment in segments {
+        for segment in segments where segment.channel != "system" {
             let who = segment.channel == "me" ? "Me" : "Them"
             lines.append("[\(segment.t.clockString)] \(who): \(segment.text)")
         }
@@ -245,10 +245,27 @@ enum AgentPrompts {
         if !thoughts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             block += "\n\nUSER'S OWN TYPED NOTES DURING THE MEETING:\n" + thoughts
         }
+        let ocr = captures.compactMap { capture -> String? in
+            guard let text = capture.ocrText, !text.isEmpty else { return nil }
+            return "[captured at \(capture.t.clockString)]\n\(text)"
+        }
+        if !ocr.isEmpty {
+            block += "\n\nSCREEN CAPTURES DURING THE MEETING (OCR text from slides or shared screens):\n" + ocr.joined(separator: "\n---\n")
+        }
         return block
     }
 
-    static func summary(segments: [TranscriptSegment], thoughts: String) -> String {
+    static func title(segments: [TranscriptSegment]) -> String {
+        let lines = segments.suffix(60).filter { $0.channel != "system" }
+            .map { "\($0.channel == "me" ? "Me" : "Them"): \($0.text)" }
+        return """
+        Based on this meeting transcript so far, reply with ONLY a specific 3 to 6 word title for the meeting. No quotes, no punctuation at the end, no explanation. If there is not enough content yet, reply with exactly: New note
+
+        \(lines.joined(separator: "\n"))
+        """
+    }
+
+    static func summary(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = []) -> String {
         """
         You are a meeting notes assistant running locally. Summarize this meeting transcript.
 
@@ -266,7 +283,7 @@ enum AgentPrompts {
 
         \(styleRules)
 
-        \(transcriptBlock(segments: segments, thoughts: thoughts))
+        \(transcriptBlock(segments: segments, thoughts: thoughts, captures: captures))
         """
     }
 

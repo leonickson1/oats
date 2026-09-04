@@ -3,13 +3,15 @@ import Combine
 import AVFoundation
 
 // Orchestrates a meeting note: mic + system tap -> two transcriber pipelines
-// -> live segments -> file store -> summary on stop.
+// -> live segments -> file store -> summary on stop. Supports pause/resume
+// and live auto-titling through the local agent.
 @MainActor
 final class MeetingRecorder: ObservableObject {
     enum State: Equatable {
         case idle
         case starting
         case recording
+        case paused
         case stopping
         case failed(String)
     }
@@ -24,14 +26,18 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var isSummarizing = false
     @Published private(set) var systemAudioUnavailable = false
 
-    var isActive: Bool { state == .recording || state == .starting }
+    var isActive: Bool { state == .recording || state == .starting || state == .paused }
+    var isPaused: Bool { state == .paused }
 
     private let mic = MicCapture()
     private let tap = SystemAudioTap()
     private var mePipe: TranscriberPipeline?
     private var themPipe: TranscriberPipeline?
     private var ticker: Timer?
-    private var startedAt: Date?
+    private var resumedAt: Date?
+    private var accumulated: TimeInterval = 0
+    private var lastTitleAttempt: Date?
+    private var titleTaskRunning = false
 
     unowned let store: NoteStore
     unowned let agent: AgentBridge
@@ -40,6 +46,11 @@ final class MeetingRecorder: ObservableObject {
         self.store = store
         self.agent = agent
     }
+
+    // MARK: - Settings
+
+    private var autoSummary: Bool { UserDefaults.standard.object(forKey: "autoSummary") as? Bool ?? true }
+    private var autoTitle: Bool { UserDefaults.standard.object(forKey: "autoTitle") as? Bool ?? true }
 
     // MARK: - Lifecycle
 
@@ -50,23 +61,29 @@ final class MeetingRecorder: ObservableObject {
         volatileMe = ""
         volatileThem = ""
         elapsed = 0
+        accumulated = 0
         levels = []
+        lastTitleAttempt = nil
 
         guard await MicCapture.requestPermission() else {
             state = .failed("Microphone access was denied. Enable it in System Settings > Privacy & Security > Microphone.")
             return nil
         }
 
+        // Create the note first so the user sees "Preparing" instead of nothing
+        // while the on-device model downloads on first use.
+        let note = store.createNote()
+        currentNoteID = note.id
+
         let locale = await TranscriberPipeline.supportedLocale(matching: Locale.current) ?? Locale(identifier: "en-US")
         do {
             try await TranscriberPipeline.ensureAssets(locale: locale)
         } catch {
             state = .failed("Could not prepare the on-device speech model: \(error.localizedDescription)")
+            currentNoteID = nil
+            store.deleteNote(id: note.id)
             return nil
         }
-
-        let note = store.createNote()
-        currentNoteID = note.id
 
         let mePipe = TranscriberPipeline(label: "me")
         let themPipe = TranscriberPipeline(label: "them")
@@ -110,41 +127,82 @@ final class MeetingRecorder: ObservableObject {
             systemAudioUnavailable = true
         }
 
-        startedAt = Date()
+        resumedAt = Date()
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, let startedAt = self.startedAt else { return }
-                self.elapsed = Date().timeIntervalSince(startedAt)
-            }
+            Task { @MainActor [weak self] in self?.tick() }
         }
         state = .recording
         return note.id
     }
 
+    func pause() {
+        guard state == .recording else { return }
+        if let resumedAt { accumulated += Date().timeIntervalSince(resumedAt) }
+        resumedAt = nil
+        mic.stop()
+        tap.stop()
+        flushVolatile()
+        commit(channel: "system", text: "Paused")
+        state = .paused
+    }
+
+    func resume() {
+        guard state == .paused else { return }
+        do {
+            try mic.start(echoCancellation: true)
+        } catch {
+            state = .failed("Could not restart the microphone: \(error.localizedDescription)")
+            return
+        }
+        if !systemAudioUnavailable {
+            try? tap.start()
+        }
+        commit(channel: "system", text: "Resumed")
+        resumedAt = Date()
+        state = .recording
+    }
+
     func stop() async {
-        guard state == .recording || state == .starting else { return }
+        guard isActive else { return }
+        let wasPaused = state == .paused
         state = .stopping
         ticker?.invalidate()
         ticker = nil
-        mic.stop()
-        tap.stop()
+        if let resumedAt { accumulated += Date().timeIntervalSince(resumedAt) }
+        resumedAt = nil
+        elapsed = accumulated
+        if !wasPaused {
+            mic.stop()
+            tap.stop()
+        }
         await teardownPipelines()
-
-        // Flush any remaining volatile text as final segments.
-        if !volatileMe.isEmpty { commit(channel: "me", text: volatileMe) }
-        if !volatileThem.isEmpty { commit(channel: "them", text: volatileThem) }
-        volatileMe = ""
-        volatileThem = ""
+        flushVolatile()
 
         if let id = currentNoteID, var meta = store.meta(id: id) {
             meta.duration = elapsed
             store.save(meta: meta)
             state = .idle
-            await generateSummary(noteID: id)
+            currentNoteID = nil
+            if autoSummary {
+                await generateSummary(noteID: id)
+            }
         } else {
             state = .idle
+            currentNoteID = nil
         }
-        currentNoteID = nil
+    }
+
+    private func tick() {
+        guard state == .recording else { return }
+        if let resumedAt { elapsed = accumulated + Date().timeIntervalSince(resumedAt) }
+        maybeAutoTitle()
+    }
+
+    private func flushVolatile() {
+        if !volatileMe.isEmpty { commit(channel: "me", text: volatileMe) }
+        if !volatileThem.isEmpty { commit(channel: "them", text: volatileThem) }
+        volatileMe = ""
+        volatileThem = ""
     }
 
     private func teardownPipelines() async {
@@ -189,22 +247,50 @@ final class MeetingRecorder: ObservableObject {
         if levels.count > 24 { levels.removeFirst(levels.count - 24) }
     }
 
+    // MARK: - Live auto-title
+
+    private func maybeAutoTitle() {
+        guard autoTitle, !titleTaskRunning, let id = currentNoteID, let meta = store.meta(id: id) else { return }
+        guard meta.titleLocked != true else { return }
+        let spoken = segments.filter { $0.channel != "system" }
+        guard spoken.count >= 6 else { return }
+        // First attempt once there is real content, then refresh every 2 minutes.
+        if let last = lastTitleAttempt, Date().timeIntervalSince(last) < 120 { return }
+        guard !meta.isUntitled || spoken.count >= 6 else { return }
+        lastTitleAttempt = Date()
+        titleTaskRunning = true
+        let prompt = AgentPrompts.title(segments: spoken)
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.titleTaskRunning = false }
+            guard let raw = try? await self.agent.run(prompt: prompt) else { return }
+            let title = raw.split(separator: "\n").first.map(String.init)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \"'.")) ?? ""
+            guard !title.isEmpty, title != "New note", title.count <= 80 else { return }
+            if var meta = self.store.meta(id: id), meta.titleLocked != true {
+                meta.title = title
+                self.store.save(meta: meta)
+            }
+        }
+    }
+
     // MARK: - Summary
 
     func generateSummary(noteID: UUID) async {
-        let segments = store.loadSegments(noteID: noteID)
+        let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
         guard !segments.isEmpty else { return }
         isSummarizing = true
         defer { isSummarizing = false }
         let thoughts = store.loadThoughts(noteID: noteID)
-        let prompt = AgentPrompts.summary(segments: segments, thoughts: thoughts)
+        let captures = store.loadAttachments(noteID: noteID)
+        let prompt = AgentPrompts.summary(segments: segments, thoughts: thoughts, captures: captures)
         guard let output = try? await agent.run(prompt: prompt) else { return }
 
         var summary = output
         if let range = output.range(of: "TITLE:") {
             let afterTitle = output[range.upperBound...]
             let titleLine = afterTitle.prefix(while: { !$0.isNewline }).trimmingCharacters(in: .whitespaces)
-            if !titleLine.isEmpty, var meta = store.meta(id: noteID) {
+            if !titleLine.isEmpty, var meta = store.meta(id: noteID), meta.titleLocked != true {
                 meta.title = titleLine
                 store.save(meta: meta)
             }

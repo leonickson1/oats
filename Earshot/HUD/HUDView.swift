@@ -1,150 +1,164 @@
 import SwiftUI
 
-// The floating pill cluster. Three states:
-//   idle:      [dictation mic] [record] [notepad]
-//   dictating: [cancel] [waveform] [accept]
-//   meeting:   [waveform + stop] [notepad]
+// The floating lozenge. Earshot's own take: a tiny quiet capsule that only
+// grows when you need it, and everything it shows is real signal.
+//   idle collapsed:      small capsule with the Earshot mark
+//   idle expanded:       [record] [open notes]        (on hover)
+//   recording collapsed: live bars + elapsed time
+//   recording expanded:  [bars + time] [pause] [stop] [notes]
 struct HUDView: View {
     @ObservedObject var app: AppState
     @ObservedObject var recorder: MeetingRecorder
-    @ObservedObject var dictation: DictationController
+    @State private var hovering = false
+    @Namespace private var glassNS
 
     init(app: AppState) {
         self.app = app
         self.recorder = app.recorder
-        self.dictation = app.dictation
     }
 
+    private var expanded: Bool { hovering }
+
     var body: some View {
-        HStack(spacing: 8) {
-            if dictation.isActive {
-                dictatingCluster
-            } else if recorder.isActive {
-                meetingCluster
-            } else {
-                idleCluster
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                if recorder.isActive {
+                    recordingLozenge
+                    if expanded { recordingControls }
+                } else {
+                    if expanded {
+                        idleExpanded
+                    } else {
+                        idleLozenge
+                    }
+                }
             }
         }
-        .padding(.bottom, 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: dictation.isActive)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: recorder.isActive)
+        .padding(10)
+        .onHover { hovering = $0 }
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: expanded)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isActive)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isPaused)
     }
 
     // MARK: - Idle
 
-    private var idleCluster: some View {
-        HStack(spacing: 7) {
-            hudButton(systemName: "mic.fill", help: "Dictate  Opt+Period") {
-                dictation.toggle()
-            }
-            HStack(spacing: 2) {
-                hudButton(systemName: "record.circle", help: "New note  Opt+M") {
-                    app.startMeetingNote()
+    private var idleLozenge: some View {
+        Image(systemName: "waveform")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 44, height: 24)
+            .contentShape(Capsule())
+            .glassEffect(.regular, in: .capsule)
+            .glassEffectID("core", in: glassNS)
+            .help("Earshot")
+    }
+
+    private var idleExpanded: some View {
+        HStack(spacing: 8) {
+            Button {
+                app.startMeetingNote()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "record.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Record")
+                        .font(.system(size: 12, weight: .medium))
                 }
-                Button {
-                    app.showMainWindow()
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.hudText.opacity(0.7))
-                        .frame(width: 18, height: 34)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Open Earshot")
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .contentShape(Capsule())
             }
-            .background(Theme.hudBG)
-            .clipShape(Capsule())
-            hudButton(systemName: "note.text", help: "Show notepad") {
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .glassEffectID("core", in: glassNS)
+            .help("New note  Opt+M")
+
+            Button {
                 app.showMainWindow()
+            } label: {
+                Image(systemName: "note.text")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffectID("notes", in: glassNS)
+            .help("Open notes")
         }
     }
 
-    // MARK: - Dictating
+    // MARK: - Recording
 
-    private var dictatingCluster: some View {
-        HStack(spacing: 6) {
-            Button {
-                Task { await dictation.cancel() }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.hudText)
-                    .frame(width: 30, height: 30)
-                    .background(Theme.hudSubtle)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Cancel")
-
-            WaveformBars(levels: dictation.levels)
-                .frame(width: 64, height: 22)
-
-            Button {
-                Task { await dictation.accept() }
-            } label: {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.hudBG)
-                    .frame(width: 30, height: 30)
-                    .background(Color.white)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Insert text")
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 6)
-        .background(Theme.hudBG)
-        .clipShape(Capsule())
-    }
-
-    // MARK: - Meeting
-
-    private var meetingCluster: some View {
+    private var recordingLozenge: some View {
         HStack(spacing: 7) {
-            HStack(spacing: 10) {
-                WaveformBars(levels: recorder.levels)
-                    .frame(width: 56, height: 22)
-                Button {
-                    app.stopMeetingNote()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Theme.hudBG)
-                        .frame(width: 26, height: 26)
-                        .background(Color.white)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Stop recording")
+            if recorder.isPaused {
+                Image(systemName: "pause.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                WaveformBars(levels: recorder.levels, barColor: Theme.record, barCount: 7, maxHeight: 12)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Theme.hudBG)
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
-            .clipShape(Capsule())
-
-            hudButton(systemName: "note.text", help: "Show notepad") {
-                app.showCurrentNoteWindow()
-            }
+            Text(recorder.elapsed.clockString)
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
         }
+        .padding(.horizontal, 11)
+        .frame(height: 26)
+        .contentShape(Capsule())
+        .glassEffect(.regular, in: .capsule)
+        .glassEffectID("core", in: glassNS)
+        .onTapGesture { app.showCurrentNoteWindow() }
+        .help(recorder.isPaused ? "Paused" : "Recording")
     }
 
-    // MARK: - Pieces
+    private var recordingControls: some View {
+        HStack(spacing: 8) {
+            Button {
+                if recorder.isPaused { recorder.resume() } else { recorder.pause() }
+            } label: {
+                Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffectID("pause", in: glassNS)
+            .help(recorder.isPaused ? "Resume" : "Pause")
 
-    private func hudButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.hudText)
-                .frame(width: 34, height: 34)
-                .background(Theme.hudBG)
-                .clipShape(Circle())
+            Button {
+                app.stopMeetingNote()
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.record)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffectID("stop", in: glassNS)
+            .help("Stop and summarize")
+
+            Button {
+                app.showCurrentNoteWindow()
+            } label: {
+                Image(systemName: "note.text")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffectID("notes", in: glassNS)
+            .help("Open note")
         }
-        .buttonStyle(.plain)
-        .help(help)
     }
 }

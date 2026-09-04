@@ -30,6 +30,10 @@ final class TranscriberPipeline {
 
     // Downloads the on-device model for the locale if needed.
     static func ensureAssets(locale: Locale) async throws {
+        let reserved = await AssetInventory.reservedLocales
+        if !reserved.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
+            _ = try? await AssetInventory.reserve(locale: locale)
+        }
         let probe = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [probe]) {
             try await request.downloadAndInstall()

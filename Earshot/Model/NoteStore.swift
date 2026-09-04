@@ -81,14 +81,57 @@ final class NoteStore: ObservableObject {
         loadLines(noteID: noteID, file: "transcript.jsonl")
     }
 
-    // MARK: - Thoughts / summary (markdown)
+    // MARK: - Thoughts (rich text as Codable AttributedString + plain note.md export)
 
-    func saveThoughts(noteID: UUID, _ text: String) {
-        try? text.write(to: dir(for: noteID).appendingPathComponent("note.md"), atomically: true, encoding: .utf8)
+    func saveThoughts(noteID: UUID, _ text: AttributedString) {
+        if let data = try? JSONEncoder().encode(text) {
+            try? data.write(to: dir(for: noteID).appendingPathComponent("thoughts.json"))
+        }
+        // Keep a grep-friendly plain copy; this is also what agents read.
+        let plain = String(text.characters)
+        try? plain.write(to: dir(for: noteID).appendingPathComponent("note.md"), atomically: true, encoding: .utf8)
+    }
+
+    func loadRichThoughts(noteID: UUID) -> AttributedString {
+        let url = dir(for: noteID).appendingPathComponent("thoughts.json")
+        if let data = try? Data(contentsOf: url),
+           let text = try? JSONDecoder().decode(AttributedString.self, from: data) {
+            return text
+        }
+        return AttributedString(loadThoughts(noteID: noteID))
     }
 
     func loadThoughts(noteID: UUID) -> String {
         (try? String(contentsOf: dir(for: noteID).appendingPathComponent("note.md"), encoding: .utf8)) ?? ""
+    }
+
+    // MARK: - Attachments (images in assets/, links; listed in attachments.jsonl)
+
+    func assetsDir(for id: UUID) -> URL {
+        let url = dir(for: id).appendingPathComponent("assets", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func appendAttachment(noteID: UUID, _ attachment: Attachment) {
+        appendLine(noteID: noteID, file: "attachments.jsonl", value: attachment)
+        revision += 1
+    }
+
+    func loadAttachments(noteID: UUID) -> [Attachment] {
+        loadLines(noteID: noteID, file: "attachments.jsonl")
+    }
+
+    // Rewrites the attachment list (used for updates like adding OCR text or deleting).
+    func saveAttachments(noteID: UUID, _ attachments: [Attachment]) {
+        let url = dir(for: noteID).appendingPathComponent("attachments.jsonl")
+        let lineEncoder = JSONEncoder()
+        lineEncoder.dateEncodingStrategy = .iso8601
+        let lines = attachments.compactMap { try? lineEncoder.encode($0) }
+            .compactMap { String(data: $0, encoding: .utf8) }
+        try? (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))
+            .write(to: url, atomically: true, encoding: .utf8)
+        revision += 1
     }
 
     func saveSummary(noteID: UUID, _ text: String) {

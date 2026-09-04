@@ -9,7 +9,10 @@ final class AppState: ObservableObject {
     let store: NoteStore
     let agent: AgentBridge
     let recorder: MeetingRecorder
-    let dictation: DictationController
+    let capture: CaptureManager
+
+    @Published var selectedNoteID: UUID?
+    @Published var showOnboarding = false
 
     @Published var hudVisible: Bool {
         didSet {
@@ -26,7 +29,7 @@ final class AppState: ObservableObject {
         self.store = store
         self.agent = agent
         self.recorder = MeetingRecorder(store: store, agent: agent)
-        self.dictation = DictationController()
+        self.capture = CaptureManager(store: store)
         self.hudVisible = UserDefaults.standard.object(forKey: "hudVisible") as? Bool ?? true
     }
 
@@ -44,9 +47,6 @@ final class AppState: ObservableObject {
                 self.startMeetingNote()
             }
         }
-        HotkeyManager.shared.onDictationToggle = { [weak self] in
-            self?.dictation.toggle()
-        }
         HotkeyManager.shared.register()
 
         // Warm up the on-device speech model in the background.
@@ -55,7 +55,15 @@ final class AppState: ObservableObject {
             try? await TranscriberPipeline.ensureAssets(locale: locale)
         }
 
+        if !UserDefaults.standard.bool(forKey: "didOnboard") {
+            showOnboarding = true
+        }
         showMainWindow()
+    }
+
+    func finishOnboarding() {
+        UserDefaults.standard.set(true, forKey: "didOnboard")
+        showOnboarding = false
     }
 
     private func updateHUDVisibility() {
@@ -74,7 +82,8 @@ final class AppState: ObservableObject {
         guard !recorder.isActive else { return }
         Task {
             if let id = await recorder.start() {
-                WindowManager.shared.showNote(id: id, app: self)
+                selectedNoteID = id
+                showMainWindow()
             } else {
                 showMainWindow()
             }
@@ -92,15 +101,13 @@ final class AppState: ObservableObject {
 
     func showCurrentNoteWindow() {
         if let id = recorder.currentNoteID {
-            WindowManager.shared.showNote(id: id, app: self)
-            NSApp.activate(ignoringOtherApps: true)
-        } else {
-            showMainWindow()
+            selectedNoteID = id
         }
+        showMainWindow()
     }
 
     func openNote(id: UUID) {
-        WindowManager.shared.showNote(id: id, app: self)
-        NSApp.activate(ignoringOtherApps: true)
+        selectedNoteID = id
+        showMainWindow()
     }
 }
