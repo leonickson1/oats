@@ -1,0 +1,29 @@
+name: Earshot
+options:
+  bundleIdPrefix: dev.earshot
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "26.0"
+targets:
+  Earshot:
+    type: application
+    platform: macOS
+    sources:
+      - path: Earshot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.earshot.app
+        PRODUCT_NAME: Earshot
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        INFOPLIST_FILE: Earshot/Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_ENTITLEMENTS: Earshot/Earshot.entitlements
+        ENABLE_HARDENED_RUNTIME: false
+        ENABLE_APP_SANDBOX: false
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: false

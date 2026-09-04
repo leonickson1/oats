@@ -1,0 +1,116 @@
+import Foundation
+import Speech
+import AVFoundation
+
+// One on-device transcription pipeline (Apple SpeechAnalyzer, macOS 26+).
+// A meeting uses two of these: mic ("me") and system audio ("them").
+final class TranscriberPipeline {
+    let label: String
+
+    private var analyzer: SpeechAnalyzer?
+    private var transcriber: SpeechTranscriber?
+    private var inputBuilder: AsyncStream<AnalyzerInput>.Continuation?
+    private var resultsTask: Task<Void, Never>?
+    private var converter: AVAudioConverter?
+    private var converterSourceFormat: AVAudioFormat?
+    private var analyzerFormat: AVAudioFormat?
+
+    // (text, isFinal) delivered on the main actor.
+    var onResult: (@MainActor (String, Bool) -> Void)?
+
+    init(label: String) {
+        self.label = label
+    }
+
+    static func supportedLocale(matching locale: Locale) async -> Locale? {
+        let supported = await SpeechTranscriber.supportedLocales
+        return supported.first { $0.identifier(.bcp47) == locale.identifier(.bcp47) }
+            ?? supported.first { $0.language.languageCode == locale.language.languageCode }
+    }
+
+    // Downloads the on-device model for the locale if needed.
+    static func ensureAssets(locale: Locale) async throws {
+        let probe = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+        if let request = try await AssetInventory.assetInstallationRequest(supporting: [probe]) {
+            try await request.downloadAndInstall()
+        }
+    }
+
+    func start(locale: Locale) async throws {
+        let transcriber = SpeechTranscriber(
+            locale: locale,
+            transcriptionOptions: [],
+            reportingOptions: [.volatileResults],
+            attributeOptions: []
+        )
+        self.transcriber = transcriber
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        self.analyzer = analyzer
+        analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+
+        let (stream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
+        inputBuilder = continuation
+
+        resultsTask = Task { [weak self] in
+            guard let transcriber = self?.transcriber else { return }
+            do {
+                for try await result in transcriber.results {
+                    let text = String(result.text.characters)
+                    let isFinal = result.isFinal
+                    guard !text.isEmpty else { continue }
+                    await MainActor.run { [weak self] in
+                        self?.onResult?(text, isFinal)
+                    }
+                }
+            } catch {
+                // Stream ended or the analyzer was cancelled; nothing to do.
+            }
+        }
+
+        try await analyzer.start(inputSequence: stream)
+    }
+
+    // Called from audio threads; conversion is cheap relative to capture cadence.
+    func feed(_ buffer: AVAudioPCMBuffer) {
+        guard let inputBuilder, let analyzerFormat else { return }
+        guard let converted = convert(buffer, to: analyzerFormat) else { return }
+        inputBuilder.yield(AnalyzerInput(buffer: converted))
+    }
+
+    func finishAndWait() async {
+        inputBuilder?.finish()
+        try? await analyzer?.finalizeAndFinishThroughEndOfInput()
+        resultsTask?.cancel()
+        resultsTask = nil
+        inputBuilder = nil
+        analyzer = nil
+        transcriber = nil
+        converter = nil
+        converterSourceFormat = nil
+    }
+
+    private func convert(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if buffer.format == format { return buffer }
+        if converter == nil || converterSourceFormat != buffer.format {
+            converter = AVAudioConverter(from: buffer.format, to: format)
+            converterSourceFormat = buffer.format
+        }
+        guard let converter else { return nil }
+        let ratio = format.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var fed = false
+        var error: NSError?
+        let status = converter.convert(to: out, error: &error) { _, outStatus in
+            if fed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            fed = true
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        guard status != .error, out.frameLength > 0 else { return nil }
+        return out
+    }
+}
