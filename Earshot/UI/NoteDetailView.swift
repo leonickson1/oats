@@ -315,6 +315,7 @@ struct NoteDetailView: View {
                                 Label("Generate summary", systemImage: "plus")
                             }
                             .buttonStyle(.glassProminent)
+                            .buttonBorderShape(.capsule)
                         }
                     }
                     .padding(.top, 70)
@@ -330,6 +331,7 @@ struct NoteDetailView: View {
                             Task { await recorder.generateSummary(noteID: noteID) }
                         }
                         .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
                         .padding(.top, 4)
                     }
                 }
@@ -514,22 +516,16 @@ struct NoteDetailView: View {
 
     private func barButton(icon: String, label: String?, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            if let label {
+                Label(label, systemImage: icon)
+            } else {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.record)
-                if let label {
-                    Text(label)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
             }
-            .padding(.horizontal, label == nil ? 0 : 19)
-            .frame(width: label == nil ? 48 : nil, height: 48)
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .tint(Theme.record)
         .help(help)
     }
 
@@ -552,11 +548,10 @@ struct NoteDetailView: View {
     private func recipeChip(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(label, systemImage: icon)
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
-                .fixedSize()
         }
         .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
         .disabled(isAsking)
     }
 
@@ -644,6 +639,7 @@ struct TranscriptPane: View {
                                     Label("Generate summary", systemImage: "plus")
                                 }
                                 .buttonStyle(.glassProminent)
+                                .buttonBorderShape(.capsule)
                                 Spacer()
                             }
                             .padding(.top, 14)

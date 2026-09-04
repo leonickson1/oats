@@ -159,10 +159,12 @@ struct IntelligenceCard: View {
             HStack(spacing: 10) {
                 Button(isTesting ? "Testing" : "Test agent") { runTest() }
                     .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
                     .disabled(isTesting)
                 Button("Refresh") { Task { await agent.detect() } }
                     .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
                 if let testResult {
                     Text(testResult)
@@ -218,9 +220,11 @@ struct CalendarCard: View {
                 case .notDetermined:
                     Button("Connect calendar") { calendar.connect() }
                         .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.capsule)
                 case .denied:
                     Button("Open settings") { calendar.openSystemSettings() }
                         .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
                 case .authorized:
                     Label("On", systemImage: "checkmark.circle.fill")
                         .font(.system(size: 12, weight: .medium))
@@ -276,6 +280,7 @@ struct PermissionsCard: View {
                     }
                 }
                 .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
                 .controlSize(.large)
             }
         }
@@ -298,6 +303,7 @@ struct DataCard: View {
                     NSWorkspace.shared.activateFileViewerSelecting([store.baseDir])
                 }
                 .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
                 .controlSize(.large)
             }
         }

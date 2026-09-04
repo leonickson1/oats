@@ -94,6 +94,7 @@ struct HomeView: View {
                         Label("New note", systemImage: "plus")
                     }
                     .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
                     .help("Start a meeting note  Opt+M")
                 }
             }
@@ -230,6 +231,7 @@ struct HomeView: View {
                             .padding(.vertical, 4)
                     }
                     .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
                     .disabled(isAsking)
                     .fixedSize()
@@ -346,6 +348,7 @@ struct ComingUpCard: View {
                     Spacer()
                     Button("Connect calendar") { calendar.connect() }
                         .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.capsule)
                         .controlSize(.large)
                 case .denied:
                     Text("Calendar access is off. Turn it on to see your meetings here.")
@@ -354,6 +357,7 @@ struct ComingUpCard: View {
                     Spacer()
                     Button("Open settings") { calendar.openSystemSettings() }
                         .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
                         .controlSize(.large)
                 case .authorized:
                     if calendar.upcoming.isEmpty {
@@ -393,6 +397,7 @@ struct ComingUpCard: View {
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .buttonStyle(.glass)
+                            .buttonBorderShape(.capsule)
                             .disabled(recorder.isActive)
                         }
                         .padding(.horizontal, 16)

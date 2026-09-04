@@ -53,6 +53,7 @@ struct OnboardingView: View {
                 Spacer()
                 Button("Start taking notes") { app.finishOnboarding() }
                     .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
                     .keyboardShortcut(.defaultAction)
             }
         }
