@@ -581,13 +581,25 @@ struct NoteDetailView: View {
                     summary: store.loadSummary(noteID: noteID)
                 )
             }
+            // Show a placeholder assistant bubble that fills in as text streams.
+            let placeholder = ChatMessage(role: "assistant", text: "")
+            chat.append(placeholder)
+            var streamed = ""
             do {
-                let answer = try await agent.run(prompt: prompt)
-                let reply = ChatMessage(role: "assistant", text: answer)
-                chat.append(reply)
-                store.appendChat(noteID: noteID, reply)
+                let answer = try await agent.runStreaming(prompt: prompt) { delta in
+                    streamed += delta
+                    if let idx = chat.firstIndex(where: { $0.id == placeholder.id }) {
+                        chat[idx] = ChatMessage(role: "assistant", text: streamed, id: placeholder.id)
+                    }
+                }
+                if let idx = chat.firstIndex(where: { $0.id == placeholder.id }) {
+                    chat[idx] = ChatMessage(role: "assistant", text: answer, id: placeholder.id)
+                }
+                store.appendChat(noteID: noteID, ChatMessage(role: "assistant", text: answer, id: placeholder.id))
             } catch {
-                chat.append(ChatMessage(role: "assistant", text: error.localizedDescription))
+                if let idx = chat.firstIndex(where: { $0.id == placeholder.id }) {
+                    chat[idx] = ChatMessage(role: "assistant", text: error.localizedDescription, id: placeholder.id)
+                }
             }
             isAsking = false
         }

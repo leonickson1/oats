@@ -163,6 +163,110 @@ final class AgentBridge: ObservableObject {
         }
     }
 
+    // Streaming variant: onDelta fires (on the main actor) as text arrives, so
+    // answers appear token by token instead of after a long silent wait.
+    func runStreaming(prompt: String, onDelta: @escaping @MainActor (String) -> Void) async throws -> String {
+        let kind = resolveKind()
+        isBusy = true
+        defer { isBusy = false }
+        switch kind {
+        case .claudeCode:
+            guard let path = availability.claudePath else { throw AgentError.noAgent }
+            return try await Self.streamProcess(path: path, arguments: ["-p", "--output-format", "text"], stdin: prompt, onDelta: onDelta)
+        case .codex:
+            guard let path = availability.codexPath else { throw AgentError.noAgent }
+            return try await Self.streamProcess(path: path, arguments: ["exec", "--skip-git-repo-check", "-"], stdin: prompt, onDelta: onDelta)
+        case .ollama:
+            guard let model = availability.ollamaModel ?? (ollamaModel.isEmpty ? nil : ollamaModel) else { throw AgentError.noAgent }
+            return try await Self.streamOllama(model: model, prompt: prompt, onDelta: onDelta)
+        case .auto, .none:
+            throw AgentError.noAgent
+        }
+    }
+
+    nonisolated private static func streamProcess(path: String, arguments: [String], stdin: String, timeout: TimeInterval = 180, onDelta: @escaping @MainActor (String) -> Void) async throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        let extra = "/opt/homebrew/bin:/usr/local/bin:\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin"
+        environment["PATH"] = "\(extra):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        process.environment = environment
+        process.currentDirectoryURL = FileManager.default.temporaryDirectory
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                continuation.finish()
+            } else if let chunk = String(data: data, encoding: .utf8) {
+                continuation.yield(chunk)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            throw AgentError.failed("Could not launch \(path): \(error.localizedDescription)")
+        }
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+        stdinPipe.fileHandleForWriting.write(Data(stdin.utf8))
+        try? stdinPipe.fileHandleForWriting.close()
+
+        var accumulated = ""
+        for await chunk in stream {
+            accumulated += chunk
+            await onDelta(chunk)
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        process.waitUntilExit()
+        watchdog.cancel()
+
+        let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+        if process.terminationStatus == 0, !trimmed.isEmpty {
+            return trimmed
+        }
+        let err = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        throw AgentError.failed(String((trimmed.isEmpty ? (err.isEmpty ? "The agent returned nothing." : err) : trimmed).prefix(500)))
+    }
+
+    nonisolated private static func streamOllama(model: String, prompt: String, onDelta: @escaping @MainActor (String) -> Void) async throws -> String {
+        guard let url = URL(string: "http://127.0.0.1:11434/api/generate") else { throw AgentError.noAgent }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model, "prompt": prompt, "stream": true,
+        ])
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw AgentError.failed("Ollama request failed.")
+        }
+        var accumulated = ""
+        for try await line in bytes.lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let piece = json["response"] as? String else { continue }
+            if !piece.isEmpty {
+                accumulated += piece
+                await onDelta(piece)
+            }
+            if json["done"] as? Bool == true { break }
+        }
+        let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AgentError.failed("Ollama did not return a response.") }
+        return trimmed
+    }
+
     nonisolated private static func runProcess(path: String, arguments: [String], stdin: String, timeout: TimeInterval = 180) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {

@@ -105,7 +105,10 @@ struct HUDView: View {
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
+                .lineLimit(1)
+                .fixedSize()
         }
+        .fixedSize()
         .padding(.horizontal, 12)
         .frame(height: 28)
         .contentShape(Capsule())

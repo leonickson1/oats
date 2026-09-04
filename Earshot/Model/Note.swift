@@ -57,8 +57,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     let text: String
     let at: Date
 
-    init(role: String, text: String) {
-        self.id = UUID()
+    init(role: String, text: String, id: UUID = UUID()) {
+        self.id = id
         self.role = role
         self.text = text
         self.at = Date()
