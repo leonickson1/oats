@@ -21,6 +21,9 @@ final class HUDPanel: NSPanel {
         hidesOnDeactivate = false
         isMovableByWindowBackground = true
         becomesKeyOnlyIfNeeded = true
+        // Always dark so the lozenge stays legible over light windows (the glass
+        // would otherwise wash out to near-invisible on a white background).
+        appearance = NSAppearance(named: .darkAqua)
 
         let hosting = NSHostingView(rootView: content)
         // The panel hugs its SwiftUI content, so transparent dead zones never

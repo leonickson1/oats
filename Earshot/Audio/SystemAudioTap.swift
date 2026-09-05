@@ -23,7 +23,7 @@ final class SystemAudioTap {
 
         // 1. A global tap: mix of all processes' output.
         let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        description.name = "Earshot system audio"
+        description.name = "Oats system audio"
         description.isPrivate = true
         description.muteBehavior = .unmuted
 
@@ -49,7 +49,7 @@ final class SystemAudioTap {
 
         // 3. Wrap the tap in a private aggregate device so we can run an IO proc on it.
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Earshot tap device",
+            kAudioAggregateDeviceNameKey: "Oats tap device",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

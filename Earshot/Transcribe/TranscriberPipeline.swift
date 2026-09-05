@@ -28,6 +28,15 @@ final class TranscriberPipeline {
             ?? supported.first { $0.language.languageCode == locale.language.languageCode }
     }
 
+    // Whether the on-device speech model for this locale is already installed
+    // (no download needed). assetInstallationRequest returns nil when nothing is
+    // left to install.
+    static func assetsInstalled(locale: Locale) async -> Bool {
+        let probe = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+        let request = try? await AssetInventory.assetInstallationRequest(supporting: [probe])
+        return (request ?? nil) == nil
+    }
+
     // Downloads the on-device model for the locale if needed.
     static func ensureAssets(locale: Locale) async throws {
         let reserved = await AssetInventory.reservedLocales

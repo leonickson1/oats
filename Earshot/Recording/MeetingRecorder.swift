@@ -21,20 +21,33 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var segments: [TranscriptSegment] = []
     @Published private(set) var volatileMe = ""
     @Published private(set) var volatileThem = ""
+    // Smoothed, character-by-character reveal of the volatile text so the live
+    // transcript looks like it is being written continuously instead of popping
+    // in whole clauses. The recognizer feeds volatile*, a fast timer catches
+    // display* up to it.
+    @Published private(set) var displayMe = ""
+    @Published private(set) var displayThem = ""
     @Published private(set) var levels: [Float] = []
     @Published private(set) var currentNoteID: UUID?
     @Published private(set) var isSummarizing = false
     @Published private(set) var systemAudioUnavailable = false
     @Published private(set) var micLooksSilent = false
+    // A short label shown app-wide while the local model is enriching notes in the
+    // background (knowledge graph / action items). nil = nothing running.
+    @Published private(set) var enrichmentLabel: String?
+    private var enrichGraphCount = 0
+    private var enrichActionsCount = 0
 
     var isActive: Bool { state == .recording || state == .starting || state == .paused }
     var isPaused: Bool { state == .paused }
 
     private let mic = MicCapture()
     private let tap = SystemAudioTap()
+    private var audioRecorder: AudioFileRecorder?
     private var mePipe: TranscriberPipeline?
     private var themPipe: TranscriberPipeline?
     private var ticker: Timer?
+    private var revealTimer: Timer?
     private var resumedAt: Date?
     private var accumulated: TimeInterval = 0
     private var lastTitleAttempt: Date?
@@ -70,6 +83,8 @@ final class MeetingRecorder: ObservableObject {
         state = .starting
         volatileMe = ""
         volatileThem = ""
+        displayMe = ""
+        displayThem = ""
         levels = []
         lastTitleAttempt = nil
 
@@ -131,11 +146,23 @@ final class MeetingRecorder: ObservableObject {
             return nil
         }
 
-        mic.onBuffer = { [weak mePipe] buffer in mePipe?.feed(buffer) }
+        // Save the whole meeting to disk alongside the transcript so it can be
+        // replayed line by line. Captured strongly by the audio callbacks; it is
+        // torn down in stop().
+        let audioRecorder = AudioFileRecorder(dir: store.dir(for: note.id))
+        self.audioRecorder = audioRecorder
+
+        mic.onBuffer = { [weak mePipe] buffer in
+            mePipe?.feed(buffer)
+            audioRecorder.appendMic(buffer)
+        }
         mic.onLevel = { [weak self] level in
             Task { @MainActor [weak self] in self?.pushLevel(level) }
         }
-        tap.onBuffer = { [weak themPipe] buffer in themPipe?.feed(buffer) }
+        tap.onBuffer = { [weak themPipe] buffer in
+            themPipe?.feed(buffer)
+            audioRecorder.appendSystem(buffer)
+        }
 
         do {
             // Raw capture. Voice-processing AEC on macOS silences the input
@@ -161,6 +188,7 @@ final class MeetingRecorder: ObservableObject {
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
         }
+        startReveal()
         state = .recording
         return note.id
     }
@@ -169,6 +197,7 @@ final class MeetingRecorder: ObservableObject {
         guard state == .recording else { return }
         if let resumedAt { accumulated += Date().timeIntervalSince(resumedAt) }
         resumedAt = nil
+        stopReveal()
         mic.stop()
         tap.stop()
         flushVolatile()
@@ -189,6 +218,7 @@ final class MeetingRecorder: ObservableObject {
         }
         commit(channel: "system", text: "Resumed")
         resumedAt = Date()
+        startReveal()
         state = .recording
     }
 
@@ -198,6 +228,7 @@ final class MeetingRecorder: ObservableObject {
         state = .stopping
         ticker?.invalidate()
         ticker = nil
+        stopReveal()
         if let resumedAt { accumulated += Date().timeIntervalSince(resumedAt) }
         resumedAt = nil
         elapsed = accumulated
@@ -208,11 +239,21 @@ final class MeetingRecorder: ObservableObject {
         await teardownPipelines()
         flushVolatile()
 
+        // Mix the raw mic + system streams down to audio.m4a off the main thread.
+        if let audioRecorder {
+            self.audioRecorder = nil
+            await Task.detached(priority: .utility) { audioRecorder.finishAndMix() }.value
+        }
+
         if let id = currentNoteID, var meta = store.meta(id: id) {
             meta.duration = elapsed
-            store.save(meta: meta)
+            store.save(meta: meta)   // save() bumps revision so the note view reloads and finds the audio
             state = .idle
             currentNoteID = nil
+            // If the user chose a downloadable engine (Whisper or Parakeet), re-transcribe
+            // the recording for higher accuracy before summarizing, so the summary reads
+            // the better transcript.
+            await maybePostTranscribe(noteID: id)
             if autoSummary {
                 await generateSummary(noteID: id)
             }
@@ -220,6 +261,52 @@ final class MeetingRecorder: ObservableObject {
             state = .idle
             currentNoteID = nil
         }
+    }
+
+    // MARK: - Whisper (after-the-meeting re-transcription)
+
+    private var selectedTranscriptionID: String {
+        UserDefaults.standard.string(forKey: "transcriptionModelID") ?? "apple"
+    }
+
+    // Replaces the live Apple transcript with a higher-accuracy pass over the mixed
+    // audio, but only when the user selected a downloadable engine (Whisper or
+    // Parakeet) and it is installed. These engines have no speaker separation, so
+    // lines are stored on a single "mixed" channel; pause markers are kept.
+    private func maybePostTranscribe(noteID: UUID) async {
+        let id = selectedTranscriptionID
+        let model = TranscriptionCatalog.model(id: id)
+        let audioURL = AudioFileRecorder.audioURL(in: store.dir(for: noteID))
+        guard FileManager.default.fileExists(atPath: audioURL.path) else { return }
+
+        let lines: [(t: TimeInterval, text: String)]
+        do {
+            switch model.engine {
+            case .whisper:
+                guard WhisperEngine.isDownloaded(id: id) else { return }
+                enrichmentLabel = "Transcribing with \(model.name)"
+                lines = try await WhisperEngine.transcribe(audioURL: audioURL, id: id)
+            case .parakeet:
+                guard ParakeetEngine.isDownloaded(id: id) else { return }
+                enrichmentLabel = "Transcribing with \(model.name)"
+                lines = try await ParakeetEngine.transcribe(audioURL: audioURL, durationHint: elapsed)
+            case .apple:
+                return
+            }
+        } catch {
+            DebugLog.log("post-transcribe failed: \(error)")
+            refreshEnrichmentLabel()
+            return
+        }
+
+        defer { refreshEnrichmentLabel() }
+        guard !lines.isEmpty else { return }
+        let markers = store.loadSegments(noteID: noteID).filter { $0.channel == "system" }
+        var replaced = lines.map { TranscriptSegment(t: $0.t, channel: "mixed", text: $0.text) }
+        replaced.append(contentsOf: markers)
+        replaced.sort { $0.t < $1.t }
+        store.replaceSegments(noteID: noteID, replaced)
+        segments = replaced
     }
 
     private func tick() {
@@ -240,6 +327,46 @@ final class MeetingRecorder: ObservableObject {
         if !volatileThem.isEmpty { commit(channel: "them", text: volatileThem) }
         volatileMe = ""
         volatileThem = ""
+        displayMe = ""
+        displayThem = ""
+    }
+
+    // MARK: - Typewriter reveal
+
+    private func startReveal() {
+        revealTimer?.invalidate()
+        revealTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.revealTick() }
+        }
+    }
+
+    private func stopReveal() {
+        revealTimer?.invalidate()
+        revealTimer = nil
+    }
+
+    private func revealTick() {
+        advance(&displayMe, toward: volatileMe)
+        advance(&displayThem, toward: volatileThem)
+    }
+
+    // Moves `display` a few characters closer to `target`. Reveals faster when it
+    // has fallen far behind so it keeps up with speech, and snaps back to the
+    // shared prefix when the recognizer revises its hypothesis.
+    private func advance(_ display: inout String, toward target: String) {
+        if display == target { return }
+        let d = Array(display)
+        let t = Array(target)
+        var common = 0
+        let limit = min(d.count, t.count)
+        while common < limit && d[common] == t[common] { common += 1 }
+        var count = common < d.count ? common : d.count
+        if count < t.count {
+            let backlog = t.count - count
+            count = min(t.count, count + max(2, backlog / 6))
+        }
+        let next = String(t[0..<min(count, t.count)])
+        if next != display { display = next }
     }
 
     private func teardownPipelines() async {
@@ -262,7 +389,7 @@ final class MeetingRecorder: ObservableObject {
 
     private func handleResult(channel: String, text: String, isFinal: Bool) {
         if isFinal {
-            if channel == "me" { volatileMe = "" } else { volatileThem = "" }
+            if channel == "me" { volatileMe = ""; displayMe = "" } else { volatileThem = ""; displayThem = "" }
             commit(channel: channel, text: text)
         } else {
             if channel == "me" { volatileMe = text } else { volatileThem = text }
@@ -336,5 +463,47 @@ final class MeetingRecorder: ObservableObject {
             }
         }
         store.saveSummary(noteID: noteID, summary)
+        // Action items and the knowledge graph fill in afterwards so the summary
+        // shows immediately; each write bumps the store so the UI updates live.
+        Task { [weak self] in
+            await self?.extractActions(noteID: noteID)
+            await self?.extractGraph(noteID: noteID)
+        }
+    }
+
+    // Pull concrete to-dos out of a meeting and save them for the action hub.
+    func extractActions(noteID: UUID) async {
+        let summary = store.loadSummary(noteID: noteID)
+        let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
+        guard !summary.isEmpty || !segments.isEmpty else { return }
+        enrichActionsCount += 1; refreshEnrichmentLabel()
+        defer { enrichActionsCount -= 1; refreshEnrichmentLabel() }
+        let prompt = AgentPrompts.actionItems(summary: summary, segments: segments)
+        guard let output = try? await agent.run(prompt: prompt) else { return }
+        store.saveActions(noteID: noteID, ActionParsing.parse(output))
+    }
+
+    // Pull people/projects/topics out of a meeting for the knowledge graph.
+    func extractGraph(noteID: UUID) async {
+        let summary = store.loadSummary(noteID: noteID)
+        let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
+        guard !summary.isEmpty || !segments.isEmpty else { return }
+        enrichGraphCount += 1; refreshEnrichmentLabel()
+        defer { enrichGraphCount -= 1; refreshEnrichmentLabel() }
+        let prompt = AgentPrompts.entities(summary: summary, segments: segments)
+        guard let output = try? await agent.run(prompt: prompt) else { return }
+        store.saveGraph(noteID: noteID, GraphParsing.parse(output))
+    }
+
+    private func refreshEnrichmentLabel() {
+        if enrichGraphCount > 0 && enrichActionsCount > 0 {
+            enrichmentLabel = "Updating notes"
+        } else if enrichGraphCount > 0 {
+            enrichmentLabel = "Updating knowledge graph"
+        } else if enrichActionsCount > 0 {
+            enrichmentLabel = "Updating action items"
+        } else {
+            enrichmentLabel = nil
+        }
     }
 }

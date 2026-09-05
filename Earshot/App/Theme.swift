@@ -114,6 +114,24 @@ struct EarshotMark: View {
     }
 }
 
+// A centered record indicator: a filled dot inside a thin ring, the standard
+// record affordance. Built as a ZStack so the dot is always dead-centered in its
+// frame regardless of the surrounding layout.
+struct RecordGlyph: View {
+    var color: Color = Theme.record
+    var size: CGFloat = 14
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(color.opacity(0.9), lineWidth: max(1, size * 0.1))
+            Circle()
+                .fill(color)
+                .frame(width: size * 0.46, height: size * 0.46)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 // Live waveform bars driven by real audio levels. Flat when silent, never fake.
 struct WaveformBars: View {
     var levels: [Float]

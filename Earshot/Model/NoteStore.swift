@@ -81,6 +81,23 @@ final class NoteStore: ObservableObject {
         loadLines(noteID: noteID, file: "transcript.jsonl")
     }
 
+    // Rewrites the whole transcript, e.g. after a higher-accuracy pass re-transcribes
+    // the recording. Bumps the revision so open note views reload.
+    func replaceSegments(noteID: UUID, _ segments: [TranscriptSegment]) {
+        closeAppendHandle(id: noteID)
+        let url = dir(for: noteID).appendingPathComponent("transcript.jsonl")
+        let lineEncoder = JSONEncoder()
+        lineEncoder.dateEncodingStrategy = .iso8601
+        var data = Data()
+        for segment in segments {
+            guard let line = try? lineEncoder.encode(segment) else { continue }
+            data.append(line)
+            data.append(0x0A)
+        }
+        try? data.write(to: url)
+        revision += 1
+    }
+
     // MARK: - Thoughts (rich text as Codable AttributedString + plain note.md export)
 
     func saveThoughts(noteID: UUID, _ text: AttributedString) {
@@ -146,10 +163,21 @@ final class NoteStore: ObservableObject {
         (try? String(contentsOf: dir(for: noteID).appendingPathComponent("summary.md"), encoding: .utf8)) ?? ""
     }
 
+    // MARK: - Saved audio
+
+    func audioURL(noteID: UUID) -> URL {
+        dir(for: noteID).appendingPathComponent("audio.m4a")
+    }
+
+    func hasAudio(noteID: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: audioURL(noteID: noteID).path)
+    }
+
     // MARK: - Chat
 
     func appendChat(noteID: UUID, _ message: ChatMessage) {
         appendLine(noteID: noteID, file: "chat.jsonl", value: message)
+        revision &+= 1
     }
 
     func loadChat(noteID: UUID) -> [ChatMessage] {
@@ -158,6 +186,67 @@ final class NoteStore: ObservableObject {
 
     func clearChat(noteID: UUID) {
         try? FileManager.default.removeItem(at: dir(for: noteID).appendingPathComponent("chat.jsonl"))
+        revision &+= 1
+    }
+
+    // MARK: - Action items
+
+    private func actionsURL(noteID: UUID) -> URL {
+        dir(for: noteID).appendingPathComponent("actions.json")
+    }
+
+    func hasActions(noteID: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: actionsURL(noteID: noteID).path)
+    }
+
+    func loadActions(noteID: UUID) -> [ActionItem] {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        guard let data = try? Data(contentsOf: actionsURL(noteID: noteID)),
+              let items = try? d.decode([ActionItem].self, from: data) else { return [] }
+        return items
+    }
+
+    func saveActions(noteID: UUID, _ items: [ActionItem]) {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = [.prettyPrinted]
+        if let data = try? e.encode(items) {
+            try? data.write(to: actionsURL(noteID: noteID))
+        }
+        revision &+= 1
+    }
+
+    func setActionDone(noteID: UUID, actionID: UUID, done: Bool) {
+        var items = loadActions(noteID: noteID)
+        guard let idx = items.firstIndex(where: { $0.id == actionID }) else { return }
+        items[idx].done = done
+        saveActions(noteID: noteID, items)
+    }
+
+    // MARK: - Knowledge graph (per-note entities)
+
+    private func graphURL(noteID: UUID) -> URL {
+        dir(for: noteID).appendingPathComponent("graph.json")
+    }
+
+    func hasGraph(noteID: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: graphURL(noteID: noteID).path)
+    }
+
+    func loadGraph(noteID: UUID) -> NoteGraph {
+        guard let data = try? Data(contentsOf: graphURL(noteID: noteID)),
+              let graph = try? JSONDecoder().decode(NoteGraph.self, from: data) else { return .empty }
+        return graph
+    }
+
+    func saveGraph(noteID: UUID, _ graph: NoteGraph) {
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted]
+        if let data = try? e.encode(graph) {
+            try? data.write(to: graphURL(noteID: noteID))
+        }
+        revision &+= 1
     }
 
     // MARK: - jsonl helpers

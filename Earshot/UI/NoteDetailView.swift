@@ -31,9 +31,16 @@ struct NoteDetailView: View {
     @State private var linkText = ""
     @State private var showImagePicker = false
     @State private var saveDebounce: Task<Void, Never>?
+    @StateObject private var player = AudioPlaybackController()
 
     private var isLiveNote: Bool { recorder.isActive && recorder.currentNoteID == noteID }
     private var displayedSegments: [TranscriptSegment] { isLiveNote ? recorder.segments : savedSegments }
+
+    // The saved recording, once a note is finished. Nil while still recording.
+    private var audioURL: URL? {
+        guard !isLiveNote, store.hasAudio(noteID: noteID) else { return nil }
+        return store.audioURL(noteID: noteID)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,9 +55,11 @@ struct NoteDetailView: View {
                     segments: displayedSegments,
                     isLive: isLiveNote,
                     isPaused: recorder.isPaused,
-                    volatileMe: isLiveNote ? recorder.volatileMe : "",
-                    volatileThem: isLiveNote ? recorder.volatileThem : "",
+                    volatileMe: isLiveNote ? recorder.displayMe : "",
+                    volatileThem: isLiveNote ? recorder.displayThem : "",
                     elapsed: isLiveNote ? recorder.elapsed : (store.meta(id: noteID)?.duration ?? 0),
+                    audioURL: audioURL,
+                    player: player,
                     systemAudioUnavailable: recorder.systemAudioUnavailable,
                     micLooksSilent: recorder.micLooksSilent,
                     canGenerateSummary: !isLiveNote && store.loadSummary(noteID: noteID).isEmpty && !displayedSegments.isEmpty && !recorder.isSummarizing,
@@ -69,6 +78,7 @@ struct NoteDetailView: View {
         .background(Theme.windowBG)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .onAppear(perform: load)
+        .onDisappear { player.teardown() }
         .onChange(of: store.revision) { reload() }
         .onChange(of: thoughts) { scheduleSave() }
         .onChange(of: title) {
@@ -97,10 +107,25 @@ struct NoteDetailView: View {
                     }
                     Button("Copy transcript") {
                         let text = displayedSegments.filter { $0.channel != "system" }
-                            .map { "[\($0.t.clockString)] \($0.channel == "me" ? "Me" : "Them"): \($0.text)" }
+                            .map { seg -> String in
+                                let who = seg.channel == "me" ? "Me: " : seg.channel == "them" ? "Them: " : ""
+                                return "[\(seg.t.clockString)] \(who)\(seg.text)"
+                            }
                             .joined(separator: "\n")
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
+                    }
+                    Divider()
+                    Menu("Export") {
+                        Button("Copy as Markdown") {
+                            ExportService.copyMarkdown(noteID: noteID, store: store)
+                        }
+                        Button("Save as Markdown…") {
+                            ExportService.saveMarkdown(noteID: noteID, store: store)
+                        }
+                        Button("Export PDF…") {
+                            ExportService.savePDF(noteID: noteID, store: store)
+                        }
                     }
                     Divider()
                     Button("Delete note", role: .destructive) {
@@ -143,6 +168,7 @@ struct NoteDetailView: View {
         savedSegments = store.loadSegments(noteID: noteID)
         if isLiveNote { tab = .transcript }
         else if meta?.hasSummary == true { tab = .summary }
+        if let audioURL { player.load(audioURL) }
         loaded = true
     }
 
@@ -151,6 +177,9 @@ struct NoteDetailView: View {
         if !isLiveNote { savedSegments = store.loadSegments(noteID: noteID) }
         attachments = store.loadAttachments(noteID: noteID)
         if let meta = store.meta(id: noteID), meta.title != title { title = meta.title }
+        // A finished recording writes audio.m4a; a resume rewrites it. load() no-ops
+        // unless the file actually changed.
+        if let audioURL { player.load(audioURL) } else { player.teardown() }
     }
 
     private func scheduleSave() {
@@ -261,7 +290,7 @@ struct NoteDetailView: View {
                 .padding(.horizontal, 20)
                 .overlay(alignment: .topLeading) {
                     if thoughts.characters.isEmpty {
-                        Text("Write notes, or drop in a capture. Earshot keeps listening either way.")
+                        Text("Write notes, or drop in a capture. Oats keeps listening either way.")
                             .font(.system(size: 13.5))
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 25)
@@ -321,19 +350,19 @@ struct NoteDetailView: View {
                     .padding(.top, 70)
                     .frame(maxWidth: .infinity)
                 } else {
-                    Text(markdownish(summary))
-                        .font(.system(size: 13.5))
+                    MarkdownView(text: summary)
                         .textSelection(.enabled)
-                        .lineSpacing(3.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if !isLiveNote {
-                        Button("Regenerate") {
-                            Task { await recorder.generateSummary(noteID: noteID) }
+                    HStack(spacing: 12) {
+                        if !isLiveNote {
+                            Button("Regenerate") {
+                                Task { await recorder.generateSummary(noteID: noteID) }
+                            }
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.capsule)
                         }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .padding(.top, 4)
+                        CopyButton(text: summary)
                     }
+                    .padding(.top, 4)
                 }
             }
             .frame(maxWidth: 680)
@@ -413,11 +442,14 @@ struct NoteDetailView: View {
                             }
                             .padding(.bottom, 8)
                         } else {
-                            Text(markdownish(message.text))
-                                .font(.system(size: 13.5))
-                                .lineSpacing(3.5)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 6) {
+                                MarkdownView(text: message.text)
+                                    .textSelection(.enabled)
+                                if !message.text.isEmpty {
+                                    CopyButton(text: message.text)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         Color.clear.frame(height: 0).id(message.id)
                     }
@@ -450,15 +482,12 @@ struct NoteDetailView: View {
     // MARK: - Floating bottom bar
 
     private var bottomBar: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 8) {
             if !displayedSegments.isEmpty && !isAsking {
                 recipeChips
             }
-            Text("Always get consent when transcribing others.")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
             GlassEffectContainer(spacing: 9) {
-                HStack(spacing: 9) {
+                HStack(alignment: .center, spacing: 9) {
                     if isLiveNote {
                         if recorder.isPaused {
                             barButton(icon: "record.circle", label: "Resume", help: "Resume recording") {
@@ -479,10 +508,11 @@ struct NoteDetailView: View {
                         }
                     }
 
-                    HStack(spacing: 10) {
+                    HStack(alignment: .center, spacing: 10) {
                         TextField("Ask anything", text: $askText)
                             .textFieldStyle(.plain)
                             .font(.system(size: 14))
+                            .lineLimit(1)
                             .onSubmit { ask(askText) }
                         if isAsking {
                             ProgressView().controlSize(.small)
@@ -495,37 +525,48 @@ struct NoteDetailView: View {
                                     .lineLimit(1)
                                     .fixedSize()
                                     .padding(.horizontal, 13)
-                                    .padding(.vertical, 8)
+                                    .padding(.vertical, 7)
                                     .background(.quaternary.opacity(0.6), in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }
+                        ModelPickerMenu(agent: agent)
                     }
                     .padding(.leading, 18)
-                    .padding(.trailing, 7)
+                    .padding(.trailing, 12)
                     .frame(height: 48)
                     .glassEffect(.regular, in: .capsule)
                 }
             }
             .frame(maxWidth: 728)
+
+            Text("Always get consent when transcribing others.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 13)
-        .padding(.top, 4)
+        .padding(.bottom, 12)
+        .padding(.top, 6)
     }
 
     private func barButton(icon: String, label: String?, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            if let label {
-                Label(label, systemImage: icon)
-            } else {
+            HStack(spacing: 8) {
                 Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.record)
+                if let label {
+                    Text(label)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
             }
+            .padding(.horizontal, label == nil ? 0 : 19)
+            .frame(width: label == nil ? 48 : nil, height: 48)
+            .contentShape(Capsule())
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
-        .tint(Theme.record)
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
         .help(help)
     }
 
@@ -610,51 +651,64 @@ struct TranscriptPane: View {
     let volatileMe: String
     let volatileThem: String
     let elapsed: TimeInterval
+    let audioURL: URL?
+    @ObservedObject var player: AudioPlaybackController
     let systemAudioUnavailable: Bool
     let micLooksSilent: Bool
     let canGenerateSummary: Bool
     let onGenerateSummary: () -> Void
 
+    // A finished note has a saved recording, so lines can be tapped to play.
+    private var seekable: Bool { audioURL != nil }
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    sessionCard
-                    if segments.isEmpty && volatileMe.isEmpty && volatileThem.isEmpty {
-                        Text(isLive ? "Listening..." : "No transcript was captured.")
-                            .font(.system(size: 16, design: .serif))
-                            .italic()
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 90)
-                    } else {
-                        bubbles
-                        if isPaused {
-                            DashedMarker(label: "Paused", icon: "pause")
-                        }
-                        if canGenerateSummary {
-                            HStack {
-                                Spacer()
-                                Button(action: onGenerateSummary) {
-                                    Label("Generate summary", systemImage: "plus")
-                                }
-                                .buttonStyle(.glassProminent)
-                                .buttonBorderShape(.capsule)
-                                Spacer()
-                            }
-                            .padding(.top, 14)
-                        }
-                    }
-                    Color.clear.frame(height: 4).id("bottom")
-                }
-                .frame(maxWidth: 680)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 28)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
+        VStack(spacing: 0) {
+            if seekable {
+                AudioPlayerBar(player: player)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
             }
-            .onChange(of: segments.count) {
-                withAnimation { proxy.scrollTo("bottom") }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !seekable { sessionCard }
+                        if segments.isEmpty && volatileMe.isEmpty && volatileThem.isEmpty {
+                            Text(isLive ? "Listening..." : "No transcript was captured.")
+                                .font(.system(size: 16, design: .serif))
+                                .italic()
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 90)
+                        } else {
+                            bubbles
+                            if isPaused {
+                                DashedMarker(label: "Paused", icon: "pause")
+                            }
+                            if canGenerateSummary {
+                                HStack {
+                                    Spacer()
+                                    Button(action: onGenerateSummary) {
+                                        Label("Generate summary", systemImage: "plus")
+                                    }
+                                    .buttonStyle(.glassProminent)
+                                    .buttonBorderShape(.capsule)
+                                    Spacer()
+                                }
+                                .padding(.top, 14)
+                            }
+                        }
+                        Color.clear.frame(height: 4).id("bottom")
+                    }
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 28)
+                    .padding(.top, seekable ? 6 : 12)
+                    .padding(.bottom, 10)
+                }
+                .onChange(of: segments.count) {
+                    withAnimation { proxy.scrollTo("bottom") }
+                }
             }
         }
     }
@@ -689,28 +743,72 @@ struct TranscriptPane: View {
         .padding(.bottom, 8)
     }
 
+    // The line the play head is currently inside, so it can be highlighted.
+    private var activeSegmentID: UUID? {
+        guard seekable, player.isLoaded, player.isPlaying || player.currentTime > 0.05 else { return nil }
+        let t = player.currentTime
+        var result: UUID?
+        for seg in segments where seg.channel != "system" {
+            if seg.t <= t + 0.3 { result = seg.id } else { break }
+        }
+        return result
+    }
+
     private var bubbles: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let active = activeSegmentID
+        return VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
                 if segment.channel == "system" {
                     DashedMarker(label: segment.text, icon: segment.text == "Paused" ? "pause" : "play")
                 } else {
                     if speakerChanged(at: index) {
-                        Text(segment.channel == "me" ? "Me" : "Them")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(segment.channel == "me" ? Color.secondary : Theme.record)
-                            .padding(.top, index == 0 ? 0 : 8)
-                            .padding(.leading, 2)
+                        HStack(spacing: 7) {
+                            Text(speakerLabel(segment.channel))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(segment.channel == "them" ? Theme.record : Color.secondary)
+                            if seekable {
+                                Text(segment.t.clockString)
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.top, index == 0 ? 0 : 8)
+                        .padding(.leading, 2)
                     }
-                    bubble(segment.text, dim: false)
+                    segmentBubble(segment, isActive: segment.id == active)
                 }
             }
             if isLive && !volatileThem.isEmpty {
-                bubble(volatileThem, dim: true)
+                bubble(volatileThem, dim: true, active: false, selectable: false)
             }
             if isLive && !volatileMe.isEmpty {
-                bubble(volatileMe, dim: true)
+                bubble(volatileMe, dim: true, active: false, selectable: false)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func segmentBubble(_ segment: TranscriptSegment, isActive: Bool) -> some View {
+        if seekable {
+            Button {
+                player.playFrom(segment.t)
+            } label: {
+                bubble(segment.text, dim: false, active: isActive, selectable: false)
+            }
+            .buttonStyle(.plain)
+            .help("Play from \(segment.t.clockString)")
+        } else {
+            bubble(segment.text, dim: false, active: isActive, selectable: true)
+        }
+    }
+
+    // "mixed" is Whisper's single-channel output (no speaker separation).
+    private func speakerLabel(_ channel: String) -> String {
+        switch channel {
+        case "me": return "Me"
+        case "them": return "Them"
+        default: return "Transcript"
         }
     }
 
@@ -734,15 +832,83 @@ struct TranscriptPane: View {
         return "Transcribing on this Mac. Nothing leaves your device."
     }
 
-    private func bubble(_ text: String, dim: Bool) -> some View {
-        Text(text)
+    @ViewBuilder
+    private func bubble(_ text: String, dim: Bool, active: Bool, selectable: Bool) -> some View {
+        let content = Text(text)
             .font(.system(size: 13.5))
             .foregroundStyle(dim ? Color.secondary : Color.primary)
-            .textSelection(.enabled)
             .lineSpacing(2.5)
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
-            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                if active { shape.fill(Theme.record.opacity(0.16)) }
+                else { shape.fill(.quaternary.opacity(0.45)) }
+            }
+            .overlay(alignment: .leading) {
+                if active {
+                    Capsule().fill(Theme.record).frame(width: 3).padding(.vertical, 5)
+                }
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+        if selectable {
+            content.textSelection(.enabled)
+        } else {
+            content
+        }
+    }
+}
+
+// A compact transport for the saved recording: play/pause, a scrubber, and the
+// running time. Tapping a transcript line seeks this player straight to that line.
+struct AudioPlayerBar: View {
+    @ObservedObject var player: AudioPlaybackController
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button {
+                player.togglePlay()
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.record)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: Circle())
+            .help(player.isPlaying ? "Pause" : "Play the recording")
+
+            Text(player.currentTime.clockString)
+                .font(.system(size: 11.5, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .leading)
+
+            Slider(
+                value: Binding(get: { player.currentTime }, set: { player.currentTime = $0 }),
+                in: 0...max(player.duration, 0.1),
+                onEditingChanged: { editing in
+                    if editing { player.beginScrub() }
+                    else { player.endScrub(to: player.currentTime) }
+                }
+            )
+            .controlSize(.small)
+            .tint(Theme.record)
+
+            Text(player.duration.clockString)
+                .font(.system(size: 11.5, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .frame(width: 42, alignment: .trailing)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 16)
+        .padding(.vertical, 7)
+        .glassEffect(.regular, in: .capsule)
+        .frame(maxWidth: 680)
+        .frame(maxWidth: .infinity)
     }
 }

@@ -1,20 +1,47 @@
 import SwiftUI
 import AppKit
 
-// Home: one calm dark canvas, notes grouped by day, a floating ask bar.
-// Notes push onto a NavigationStack like documents, not master-detail panes.
+// Home: a persistent left rail (meetings + every chat), and a main pane that
+// shows the notes list, an open note, or a selected conversation. Notes still
+// push onto a NavigationStack like documents.
 struct MainWindowView: View {
     @EnvironmentObject var app: AppState
+    @ObservedObject private var updates = UpdateChecker.shared
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationStack(path: $app.notePath) {
-            HomeView()
-                .navigationDestination(for: UUID.self) { id in
-                    NoteDetailView(noteID: id)
-                }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            ChatSidebar()
+                .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 320)
+        } detail: {
+            detailPane
         }
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
+        }
+        .sheet(isPresented: $updates.showSheet) {
+            UpdateSheet(checker: updates)
+        }
+    }
+
+    @ViewBuilder
+    private var detailPane: some View {
+        switch app.sidebar {
+        case .home:
+            NavigationStack(path: $app.notePath) {
+                HomeView()
+                    .navigationDestination(for: UUID.self) { id in
+                        NoteDetailView(noteID: id)
+                    }
+            }
+        case .actions:
+            ActionItemsView()
+        case .graph:
+            KnowledgeGraphView()
+        case .chat, .noteChat:
+            ChatConversationView(selection: app.sidebar)
+        case .space(let id):
+            SpaceView(spaceID: id)
         }
     }
 }
@@ -25,23 +52,32 @@ struct HomeView: View {
     @EnvironmentObject var recorder: MeetingRecorder
     @EnvironmentObject var agent: AgentBridge
     @EnvironmentObject var calendar: CalendarManager
+    @EnvironmentObject var spaces: SpaceStore
 
     @State private var searchText = ""
     @State private var askText = ""
+    @State private var lastAsk = ""
     @State private var askAnswer: String?
     @State private var askError: String?
     @State private var isAsking = false
+    @StateObject private var perms = Permissions()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 11) {
                     EarshotLogoView(color: .primary, size: 26)
-                    Text("Earshot")
+                    Text("Oats")
                         .font(.system(size: 30, weight: .medium, design: .serif))
+                    Spacer()
                 }
                 .padding(.top, 20)
                 .padding(.bottom, 18)
+
+                if perms.needsAttention {
+                    PermissionsBanner(perms: perms)
+                        .padding(.bottom, 18)
+                }
 
                 if recorder.isActive, let liveID = recorder.currentNoteID {
                     liveCard(liveID)
@@ -53,7 +89,9 @@ struct HomeView: View {
                         .padding(.bottom, 8)
                 }
 
-                if store.notes.isEmpty {
+                if !searchText.isEmpty {
+                    searchResults
+                } else if store.notes.isEmpty {
                     emptyState
                 } else {
                     ForEach(groupedNotes, id: \.0) { day, notes in
@@ -77,34 +115,6 @@ struct HomeView: View {
         }
         .background(Theme.windowBG)
         .searchable(text: $searchText, prompt: "Search notes")
-        .toolbar {
-            ToolbarItem {
-                if recorder.isActive {
-                    Button {
-                        app.showCurrentNoteWindow()
-                    } label: {
-                        Label(recorder.elapsed.clockString, systemImage: "waveform")
-                            .foregroundStyle(Theme.record)
-                    }
-                    .help("Recording in progress")
-                } else {
-                    Button {
-                        app.startMeetingNote()
-                    } label: {
-                        Label("New note", systemImage: "plus")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.capsule)
-                    .help("Start a meeting note  Opt+M")
-                }
-            }
-            ToolbarItem {
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .help("Settings")
-            }
-        }
         .safeAreaInset(edge: .bottom) { askBar }
     }
 
@@ -169,6 +179,22 @@ struct HomeView: View {
         }
         .buttonStyle(HomeRowButtonStyle())
         .contextMenu {
+            if !spaces.spaces.isEmpty {
+                Menu("Add to space") {
+                    ForEach(spaces.spaces) { space in
+                        Button {
+                            spaces.toggle(noteID: meta.id, in: space.id)
+                        } label: {
+                            Label {
+                                Text(space.name)
+                            } icon: {
+                                if space.noteIDs.contains(meta.id) { Image(systemName: "checkmark") }
+                            }
+                        }
+                    }
+                }
+                Divider()
+            }
             Button("Reveal files in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([store.dir(for: meta.id)])
             }
@@ -179,6 +205,72 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Semantic search results
+
+    @ViewBuilder
+    private var searchResults: some View {
+        let results = SemanticIndex.shared.search(searchText, in: store)
+        if results.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text("No matches")
+                    .font(.system(size: 14, weight: .semibold, design: .serif))
+                Text("Nothing in your meetings matches that yet.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 60)
+        } else {
+            Text("Best matches")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.top, 16)
+                .padding(.bottom, 6)
+            VStack(spacing: 1) {
+                ForEach(results) { result in
+                    if let meta = store.meta(id: result.noteID) {
+                        searchRow(meta, snippet: result.snippet)
+                    }
+                }
+            }
+        }
+    }
+
+    private func searchRow(_ meta: NoteMeta, snippet: String) -> some View {
+        Button { app.openNote(id: meta.id) } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(meta.title)
+                            .font(.system(size: 13.5, weight: .medium))
+                            .lineLimit(1)
+                        Spacer()
+                        Text(meta.createdAt.formatted(date: .abbreviated, time: .omitted))
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                    if !snippet.isEmpty {
+                        Text(snippet)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(HomeRowButtonStyle())
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "waveform")
@@ -186,7 +278,7 @@ struct HomeView: View {
                 .foregroundStyle(.tertiary)
             Text("No notes yet")
                 .font(.system(size: 15, weight: .semibold, design: .serif))
-            Text("Press New note before your next meeting. Earshot transcribes both sides on this Mac and writes the summary for you.")
+            Text("Press New note before your next meeting. Oats transcribes both sides on this Mac and writes the summary for you.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -218,6 +310,7 @@ struct HomeView: View {
                         if isAsking {
                             ProgressView().controlSize(.small)
                         }
+                        ModelPickerMenu(agent: agent)
                     }
                     .padding(.horizontal, 18)
                     .frame(height: 48)
@@ -247,11 +340,21 @@ struct HomeView: View {
 
     private func answerCard(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 10) {
                 Text("From your meetings")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.tertiary)
                 Spacer()
+                if !text.isEmpty {
+                    Button { expandToChat(text) } label: {
+                        Label("Open in chat", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Continue this as a full chat")
+                    CopyButton(text: text, compact: true)
+                }
                 Button {
                     askAnswer = nil
                     askError = nil
@@ -266,13 +369,22 @@ struct HomeView: View {
             .padding(.top, 11)
             .padding(.bottom, 6)
             ScrollView {
-                Text(markdownish(text))
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
-                    .lineSpacing(2.5)
+                if text.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading your recent meetings")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 12)
+                } else {
+                    MarkdownView(text: text, textSize: 13)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                }
             }
             .frame(maxHeight: 220)
         }
@@ -303,18 +415,34 @@ struct HomeView: View {
         }
     }
 
+    // Promote the quick Home answer into a real, continuable chat window.
+    private func expandToChat(_ answer: String) {
+        guard !answer.isEmpty else { return }
+        let id = app.chat.startFrom(question: lastAsk, answer: answer)
+        askAnswer = nil
+        askError = nil
+        app.openChatInWindow(sessionID: id)
+    }
+
     private func runAsk(_ question: String) {
         let q = question.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, !isAsking else { return }
+        lastAsk = q
         askText = ""
         isAsking = true
-        askAnswer = nil
+        askAnswer = ""   // show the card immediately; fill it as tokens arrive
         askError = nil
         Task {
             let context = store.notes.prefix(10).map { ($0, store.loadSummary(noteID: $0.id)) }
+            var streamed = ""
             do {
-                askAnswer = try await agent.run(prompt: AgentPrompts.globalAsk(question: q, notes: context))
+                let answer = try await agent.runStreaming(prompt: AgentPrompts.globalAsk(question: q, notes: context)) { delta in
+                    streamed += delta
+                    askAnswer = streamed
+                }
+                askAnswer = answer
             } catch {
+                askAnswer = nil
                 askError = error.localizedDescription
             }
             isAsking = false

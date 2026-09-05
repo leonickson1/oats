@@ -26,7 +26,11 @@ struct EarshotApp: App {
 
 struct MenuBarContent: View {
     var body: some View {
-        Button("Open Earshot") { AppState.shared.showMainWindow() }
+        Button("Open Oats") { AppState.shared.showMainWindow() }
+        Button("Ask Oats") { AppState.shared.toggleAsk() }
+            .keyboardShortcut(.space, modifiers: .option)
+        Button("New chat") { AppState.shared.newChatInWindow() }
+        Button("Check for Updates…") { Task { await UpdateChecker.shared.check(userInitiated: true) } }
         Button(AppState.shared.recorder.isActive ? "Stop recording" : "New note") {
             if AppState.shared.recorder.isActive {
                 AppState.shared.stopMeetingNote()
@@ -40,14 +44,17 @@ struct MenuBarContent: View {
             AppState.shared.hudVisible.toggle()
         }
         Divider()
-        Button("Quit Earshot") { NSApp.terminate(nil) }
+        Button("Quit Oats") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if ProcessInfo.processInfo.environment["EARSHOT_SELFTEST_AUDIO"] != nil {
+        let env = ProcessInfo.processInfo.environment
+        if env["EARSHOT_SELFTEST_AUDIO"] != nil
+            || env["EARSHOT_SELFTEST_MIC"] != nil
+            || env["EARSHOT_SELFTEST_LOGIC"] != nil {
             SelfTest.runIfRequested()
             return
         }

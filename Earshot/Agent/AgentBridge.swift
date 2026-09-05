@@ -5,7 +5,7 @@ import Combine
 // into whatever agent the user already has, in this order of preference:
 //   1. Claude Code (`claude -p`)   2. Codex (`codex exec`)   3. Ollama (localhost)
 enum AgentKind: String, CaseIterable, Identifiable {
-    case auto, claudeCode, codex, ollama, none
+    case auto, claudeCode, codex, ollama, apple, none
     var id: String { rawValue }
 
     var displayName: String {
@@ -14,6 +14,7 @@ enum AgentKind: String, CaseIterable, Identifiable {
         case .claudeCode: return "Claude Code"
         case .codex: return "Codex"
         case .ollama: return "Ollama"
+        case .apple: return "Apple Intelligence"
         case .none: return "Off (transcripts only)"
         }
     }
@@ -41,14 +42,31 @@ final class AgentBridge: ObservableObject {
     @Published var ollamaModel: String {
         didSet { UserDefaults.standard.set(ollamaModel, forKey: "ollamaModel") }
     }
+    // Which Claude model the `claude` CLI should use. Empty = the CLI's default.
+    @Published var claudeModel: String {
+        didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
+    }
     @Published private(set) var availability = AgentAvailability()
     @Published private(set) var ollamaModels: [String] = []
     @Published private(set) var isBusy = false
+    // Apple's built-in on-device model (macOS 26 Apple Intelligence).
+    @Published private(set) var appleAvailable = false
+    @Published private(set) var appleReason: String?
+
+    // Model aliases the Claude Code CLI accepts via --model.
+    let claudeModels = ["opus", "sonnet", "haiku"]
 
     init() {
         preference = AgentKind(rawValue: UserDefaults.standard.string(forKey: "agentPreference") ?? "auto") ?? .auto
         ollamaModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? ""
+        claudeModel = UserDefaults.standard.string(forKey: "claudeModel") ?? ""
         Task { await detect() }
+    }
+
+    private var claudeArguments: [String] {
+        var args = ["-p", "--output-format", "text"]
+        if !claudeModel.isEmpty { args += ["--model", claudeModel] }
+        return args
     }
 
     // MARK: - Detection
@@ -57,6 +75,8 @@ final class AgentBridge: ObservableObject {
         var result = AgentAvailability()
         result.claudePath = Self.findExecutable("claude")
         result.codexPath = Self.findExecutable("codex")
+        appleAvailable = AppleModel.isAvailable
+        appleReason = AppleModel.reason
         if let models = await Self.ollamaModels() {
             ollamaModels = models
             let preferred = ollamaModel
@@ -129,6 +149,7 @@ final class AgentBridge: ObservableObject {
             if availability.claudePath != nil { return .claudeCode }
             if availability.codexPath != nil { return .codex }
             if availability.ollamaModel != nil { return .ollama }
+            if appleAvailable { return .apple }
             return .none
         default:
             return preference
@@ -140,6 +161,7 @@ final class AgentBridge: ObservableObject {
         case .claudeCode: return "Claude Code"
         case .codex: return "Codex"
         case .ollama: return "Ollama"
+        case .apple: return "Apple Intelligence"
         default: return "no agent"
         }
     }
@@ -151,13 +173,15 @@ final class AgentBridge: ObservableObject {
         switch kind {
         case .claudeCode:
             guard let path = availability.claudePath else { throw AgentError.noAgent }
-            return try await Self.runProcess(path: path, arguments: ["-p", "--output-format", "text"], stdin: prompt)
+            return try await Self.runProcess(path: path, arguments: claudeArguments, stdin: prompt)
         case .codex:
             guard let path = availability.codexPath else { throw AgentError.noAgent }
             return try await Self.runProcess(path: path, arguments: ["exec", "--skip-git-repo-check", "-"], stdin: prompt)
         case .ollama:
             guard let model = availability.ollamaModel ?? (ollamaModel.isEmpty ? nil : ollamaModel) else { throw AgentError.noAgent }
             return try await Self.runOllama(model: model, prompt: prompt)
+        case .apple:
+            return try await AppleModel.run(prompt: prompt)
         case .auto, .none:
             throw AgentError.noAgent
         }
@@ -172,16 +196,52 @@ final class AgentBridge: ObservableObject {
         switch kind {
         case .claudeCode:
             guard let path = availability.claudePath else { throw AgentError.noAgent }
-            return try await Self.streamProcess(path: path, arguments: ["-p", "--output-format", "text"], stdin: prompt, onDelta: onDelta)
+            return try await Self.streamProcess(path: path, arguments: claudeArguments, stdin: prompt, onDelta: onDelta)
         case .codex:
             guard let path = availability.codexPath else { throw AgentError.noAgent }
             return try await Self.streamProcess(path: path, arguments: ["exec", "--skip-git-repo-check", "-"], stdin: prompt, onDelta: onDelta)
         case .ollama:
             guard let model = availability.ollamaModel ?? (ollamaModel.isEmpty ? nil : ollamaModel) else { throw AgentError.noAgent }
             return try await Self.streamOllama(model: model, prompt: prompt, onDelta: onDelta)
+        case .apple:
+            return try await AppleModel.runStreaming(prompt: prompt, onDelta: onDelta)
         case .auto, .none:
             throw AgentError.noAgent
         }
+    }
+
+    // MARK: - Ollama model download
+
+    // Pull a model into Ollama, reporting progress (0...1, or -1 while indeterminate)
+    // and a short status line. Refreshes the model list when finished.
+    func pullOllama(model: String, onProgress: @escaping @MainActor (Double, String) -> Void) async throws {
+        guard let url = URL(string: "http://127.0.0.1:11434/api/pull") else { throw AgentError.noAgent }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 3600
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "stream": true])
+        let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+        do {
+            (bytes, response) = try await URLSession.shared.bytes(for: request)
+        } catch {
+            throw AgentError.failed("Ollama is not running. Open the Ollama app, then try again.")
+        }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw AgentError.failed("Ollama could not start the download. Is it running?")
+        }
+        for try await line in bytes.lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if let message = json["error"] as? String { throw AgentError.failed(message) }
+            let status = json["status"] as? String ?? ""
+            if let total = json["total"] as? Double, let completed = json["completed"] as? Double, total > 0 {
+                await onProgress(completed / total, status)
+            } else {
+                await onProgress(-1, status)
+            }
+            if status.lowercased() == "success" { break }
+        }
+        await detect()
     }
 
     nonisolated private static func streamProcess(path: String, arguments: [String], stdin: String, timeout: TimeInterval = 180, onDelta: @escaping @MainActor (String) -> Void) async throws -> String {
@@ -395,6 +455,42 @@ enum AgentPrompts {
         """
     }
 
+    // Pull out concrete to-dos as strict JSON so we can track and check them off.
+    static func actionItems(summary: String, segments: [TranscriptSegment]) -> String {
+        let source = summary.isEmpty
+            ? transcriptBlock(segments: segments, thoughts: "")
+            : "SUMMARY:\n\(summary)"
+        return """
+        Extract the concrete action items and commitments from this meeting. Only real tasks someone agreed to do, not general discussion.
+
+        Respond with ONLY a JSON array, no prose, no code fences. Each element:
+        {"text": "the task, imperative and specific", "owner": "person responsible or null if unknown"}
+        If there are no real action items, respond with exactly: []
+
+        \(source)
+        """
+    }
+
+    // Pull out the people, projects, topics and orgs (plus how they relate) so we
+    // can build a knowledge graph across meetings. Strict JSON.
+    static func entities(summary: String, segments: [TranscriptSegment]) -> String {
+        let source = summary.isEmpty
+            ? transcriptBlock(segments: segments, thoughts: "")
+            : "SUMMARY:\n\(summary)"
+        return """
+        From this meeting, extract the key entities and how they relate.
+
+        Respond with ONLY a JSON object, no prose, no code fences:
+        {
+          "entities": [{"name": "...", "kind": "person|project|topic|org"}],
+          "relations": [{"from": "entity name", "to": "entity name", "type": "short verb phrase"}]
+        }
+        Rules: use real names actually present, not generic words. Merge obvious duplicates. Keep it to the 12 most important entities. Relations must connect two names from the entities list. If nothing meaningful, respond with {"entities": [], "relations": []}.
+
+        \(source)
+        """
+    }
+
     static func chat(question: String, segments: [TranscriptSegment], thoughts: String, summary: String) -> String {
         """
         You are a meeting assistant running locally on this Mac. Answer the user's question using only the meeting content below. If the answer is not in the meeting, say so plainly.
@@ -415,6 +511,28 @@ enum AgentPrompts {
         \(styleRules)
 
         \(transcriptBlock(segments: segments.suffix(120), thoughts: ""))
+        """
+    }
+
+    // The summonable Ask popup: a general assistant that can also draw on the
+    // user's recent meetings, and keeps the running conversation in context.
+    static func ask(question: String, history: [ChatMessage], notes: [(meta: NoteMeta, summary: String)]) -> String {
+        var context = ""
+        for note in notes where !note.summary.isEmpty {
+            context += "MEETING: \(note.meta.title) (\(note.meta.createdAt.formatted(date: .abbreviated, time: .shortened)))\n\(note.summary)\n\n"
+        }
+        var convo = ""
+        for message in history {
+            convo += (message.role == "user" ? "User: " : "Assistant: ") + message.text + "\n"
+        }
+        return """
+        You are Earshot's assistant, running locally on this Mac. Answer the user's question directly and helpfully. If the question is about their meetings, use the meeting summaries below; otherwise just answer normally. Format the answer in clean markdown (headings, bullets, bold where it helps).
+
+        \(styleRules)
+
+        \(context.isEmpty ? "" : "RECENT MEETINGS (use only if relevant):\n\(context)")
+        \(convo.isEmpty ? "" : "CONVERSATION SO FAR:\n\(convo)")
+        QUESTION: \(question)
         """
     }
 

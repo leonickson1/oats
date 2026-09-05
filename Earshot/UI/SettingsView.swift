@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import Carbon.HIToolbox
 
 // Settings (Cmd+,): native controls, custom structure. One calm page of
 // floating cards, every behavior explained in place.
@@ -14,9 +15,13 @@ struct SettingsView: View {
                     .padding(.bottom, 4)
 
                 BehaviorCard()
+                TranscriptionCard()
                 IntelligenceCard()
+                AskCard()
                 CalendarCard()
                 PermissionsCard()
+                SampleDataCard()
+                UpdatesCard()
                 DataCard()
 
                 Color.clear.frame(height: 16)
@@ -82,6 +87,25 @@ private struct SettingsRow<Trailing: View>: View {
     }
 }
 
+// MARK: - Transcription
+
+struct TranscriptionCard: View {
+    @StateObject private var speech = SpeechAssets()
+    @StateObject private var whisper = WhisperModels()
+    @AppStorage("transcriptionModelID") private var transcriptionModelID = "apple"
+
+    var body: some View {
+        SettingsCard(
+            icon: "waveform",
+            title: "Transcription",
+            explainer: "The model that turns speech into text, entirely on this Mac. Apple's model streams live during the meeting; Whisper models download once and re-transcribe the recording afterward for higher accuracy."
+        ) {
+            TranscriptionModelList(speech: speech, whisper: whisper, selectedID: $transcriptionModelID)
+        }
+        .task { await speech.check() }
+    }
+}
+
 // MARK: - Behavior
 
 struct BehaviorCard: View {
@@ -93,7 +117,7 @@ struct BehaviorCard: View {
         SettingsCard(
             icon: "slider.horizontal.3",
             title: "Behavior",
-            explainer: "How Earshot acts around your meetings. Opt+M starts a note from anywhere."
+            explainer: "How Oats acts around your meetings. Opt+M starts a note from anywhere."
         ) {
             SettingsRow(title: "Floating controls", subtitle: "The small lozenge at the bottom of your screen.") {
                 Toggle("", isOn: $app.hudVisible).toggleStyle(.switch).labelsHidden()
@@ -121,7 +145,7 @@ struct IntelligenceCard: View {
         SettingsCard(
             icon: "brain",
             title: "Intelligence",
-            explainer: "Summaries, titles, and questions run through an AI already on this Mac. No Earshot server, no API keys; transcripts are passed as plain text."
+            explainer: "Summaries, titles, and questions run through an AI already on this Mac. No Oats server, no API keys; transcripts are passed as plain text."
         ) {
             // What is installed, each with a live connection state.
             connectionRow("Claude Code", detail: "claude", connected: agent.availability.claudePath != nil)
@@ -129,9 +153,11 @@ struct IntelligenceCard: View {
             connectionRow("Codex", detail: "codex", connected: agent.availability.codexPath != nil)
             Divider().opacity(0.4)
             connectionRow("Ollama", detail: agent.ollamaModels.isEmpty ? "not running" : "\(agent.ollamaModels.count) models", connected: !agent.ollamaModels.isEmpty)
+            Divider().opacity(0.4)
+            connectionRow("Apple Intelligence", detail: agent.appleAvailable ? "built in" : (agent.appleReason ?? "unavailable"), connected: agent.appleAvailable)
 
             Divider().opacity(0.4)
-            SettingsRow(title: "Use", subtitle: "Which one Earshot asks. Auto picks the first available.") {
+            SettingsRow(title: "Use", subtitle: "Which one Oats asks. Auto picks the first available.") {
                 Picker("", selection: $agent.preference) {
                     ForEach(AgentKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -200,6 +226,124 @@ struct IntelligenceCard: View {
     }
 }
 
+// MARK: - Ask popup
+
+struct AskCard: View {
+    @AppStorage("askSuggestion1") private var suggestion1 = "Summarize my last meeting"
+    @AppStorage("askSuggestion2") private var suggestion2 = "List today's action items"
+
+    var body: some View {
+        SettingsCard(
+            icon: "sparkles",
+            title: "Ask popup",
+            explainer: "Summon it anywhere with a global shortcut. These two quick prompts sit under the bar; make them whatever you ask most. Leave one blank to hide it."
+        ) {
+            SettingsRow(title: "Summon shortcut", subtitle: "The global key combo that opens Ask from anywhere.") {
+                ShortcutRecorder()
+            }
+            Divider().opacity(0.4)
+            SettingsRow(title: "Quick prompt 1") {
+                TextField("Summarize my last meeting", text: $suggestion1)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 260)
+            }
+            Divider().opacity(0.4)
+            SettingsRow(title: "Quick prompt 2") {
+                TextField("List today's action items", text: $suggestion2)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 260)
+            }
+        }
+    }
+}
+
+// Records a global shortcut for summoning Ask. Click to arm, then press the combo.
+// Stores the Carbon keycode + modifiers (and a display label) and live-reloads the
+// registered hotkey. Requires at least one modifier so a bare key can't be captured.
+struct ShortcutRecorder: View {
+    @AppStorage("askHotkeyKeyCode") private var keyCode = kVK_Space
+    @AppStorage("askHotkeyModifiers") private var modifiers = optionKey
+    @AppStorage("askHotkeyKeyLabel") private var keyLabel = "Space"
+
+    @State private var recording = false
+    @State private var monitor: Any?
+    @State private var hint: String?
+
+    private var isDefault: Bool { keyCode == HotkeyManager.defaultAskKeyCode && modifiers == HotkeyManager.defaultAskModifiers }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let hint, recording {
+                Text(hint)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.orange)
+            }
+            if !recording && !isDefault {
+                Button("Reset") { reset() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                recording ? stop() : start()
+            } label: {
+                Text(recording ? "Press keys…" : HotkeyManager.modifierSymbols(modifiers) + keyLabel)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .frame(minWidth: 96)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(recording ? Theme.record : nil)
+            .help("Click, then press the keys you want")
+        }
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        hint = nil
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == UInt16(kVK_Escape) { stop(); return nil }
+            let mods = HotkeyManager.carbonModifiers(from: event.modifierFlags)
+            guard mods != 0 else {
+                hint = "Add a modifier (⌥, ⌘, ⌃)"
+                return nil
+            }
+            keyCode = Int(event.keyCode)
+            modifiers = mods
+            keyLabel = Self.label(for: event)
+            HotkeyManager.shared.reloadAskHotkey()
+            stop()
+            return nil
+        }
+    }
+
+    private func stop() {
+        recording = false
+        if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+    }
+
+    private func reset() {
+        keyCode = HotkeyManager.defaultAskKeyCode
+        modifiers = HotkeyManager.defaultAskModifiers
+        keyLabel = "Space"
+        HotkeyManager.shared.reloadAskHotkey()
+    }
+
+    private static func label(for event: NSEvent) -> String {
+        switch Int(event.keyCode) {
+        case kVK_Space: return "Space"
+        case kVK_Return: return "Return"
+        case kVK_Tab: return "Tab"
+        case kVK_ANSI_KeypadEnter: return "Enter"
+        default:
+            let chars = (event.charactersIgnoringModifiers ?? "").uppercased()
+            return chars.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Key \(event.keyCode)" : chars
+        }
+    }
+}
+
 // MARK: - Calendar
 
 struct CalendarCard: View {
@@ -253,7 +397,7 @@ struct PermissionsCard: View {
         SettingsCard(
             icon: "lock.shield",
             title: "Permissions",
-            explainer: "Earshot records only when you press Record, shows a visible state the whole time, and keeps everything on this Mac."
+            explainer: "Oats records only when you press Record, shows a visible state the whole time, and keeps everything on this Mac."
         ) {
             row("Microphone", "Hears your side of the meeting.", granted: micGranted, anchor: "Privacy_Microphone")
             Divider().opacity(0.4)
@@ -288,6 +432,40 @@ struct PermissionsCard: View {
 }
 
 // MARK: - Data
+
+struct SampleDataCard: View {
+    @EnvironmentObject var store: NoteStore
+    @State private var loaded = DemoData.isLoaded
+
+    var body: some View {
+        SettingsCard(
+            icon: "sparkles",
+            title: "Sample meetings",
+            explainer: "Load 12 connected demo meetings (people, projects, customers) so you can try the knowledge graph, action items and search. Then hit Analyze / Scan on those screens to generate them."
+        ) {
+            SettingsRow(title: loaded ? "Sample meetings loaded" : "Try Oats with example data",
+                        subtitle: loaded ? "Remove them any time" : "12 meetings added to Home") {
+                if loaded {
+                    Button("Remove samples", role: .destructive) {
+                        DemoData.remove(from: store)
+                        loaded = false
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                } else {
+                    Button("Load samples") {
+                        DemoData.load(into: store)
+                        loaded = true
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                }
+            }
+        }
+    }
+}
 
 struct DataCard: View {
     @EnvironmentObject var store: NoteStore

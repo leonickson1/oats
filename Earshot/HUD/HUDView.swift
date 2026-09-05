@@ -1,8 +1,8 @@
 import SwiftUI
 
-// The floating lozenge. Earshot's own take: a tiny quiet capsule that only
+// The floating lozenge. Oats's own take: a tiny quiet capsule that only
 // grows when you need it, and everything it shows is real signal.
-//   idle collapsed:      small capsule with the Earshot mark
+//   idle collapsed:      small capsule with the Oats mark
 //   idle expanded:       [record] [open notes]        (on hover)
 //   recording collapsed: live bars + elapsed time
 //   recording expanded:  [bars + time] [pause] [stop] [notes]
@@ -43,13 +43,18 @@ struct HUDView: View {
 
     // MARK: - Idle
 
+    // A dark tint keeps the glass reading as a solid dark pill even over a bright
+    // window, so the white mark never washes out on a white background.
+    private static let darkGlass = Glass.regular.tint(.black.opacity(0.55))
+    private static let darkGlassInteractive = Glass.regular.tint(.black.opacity(0.55)).interactive()
+
     private var idleLozenge: some View {
-        EarshotLogoView(color: .secondary, size: 16)
+        EarshotLogoView(color: .white, size: 16)
             .frame(width: 46, height: 26)
             .contentShape(Capsule())
-            .glassEffect(.regular, in: .capsule)
+            .glassEffect(Self.darkGlass, in: .capsule)
             .glassEffectID("core", in: glassNS)
-            .help("Earshot")
+            .help("Oats")
     }
 
     private var idleExpanded: some View {
@@ -57,35 +62,32 @@ struct HUDView: View {
             Button {
                 app.startMeetingNote()
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "record.circle")
-                        .font(.system(size: 13, weight: .semibold))
+                HStack(spacing: 7) {
+                    RecordGlyph(color: Theme.record, size: 13)
                     Text("Record")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
+                .foregroundStyle(.white)
                 .frame(height: 30)
+                .padding(.horizontal, 13)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .glassEffect(Self.darkGlassInteractive, in: .capsule)
             .glassEffectID("core", in: glassNS)
             .help("New note  Opt+M")
 
             Button {
                 app.showMainWindow()
             } label: {
-                Image(systemName: "note.text")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
+                EarshotLogoView(color: .white, size: 15)
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffect(Self.darkGlassInteractive, in: .circle)
             .glassEffectID("notes", in: glassNS)
-            .help("Open notes")
+            .help("Open Oats")
         }
     }
 
@@ -104,7 +106,7 @@ struct HUDView: View {
             Text(recorder.elapsed.clockString)
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -112,7 +114,7 @@ struct HUDView: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .contentShape(Capsule())
-        .glassEffect(.regular, in: .capsule)
+        .glassEffect(Self.darkGlass, in: .capsule)
         .glassEffectID("core", in: glassNS)
         .onTapGesture { app.showCurrentNoteWindow() }
         .help(recorder.isPaused ? "Paused" : "Recording")
@@ -125,12 +127,12 @@ struct HUDView: View {
             } label: {
                 Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffect(Self.darkGlassInteractive, in: .circle)
             .glassEffectID("pause", in: glassNS)
             .help(recorder.isPaused ? "Resume" : "Pause")
 
@@ -144,21 +146,19 @@ struct HUDView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffect(Self.darkGlassInteractive, in: .circle)
             .glassEffectID("stop", in: glassNS)
             .help("Stop and summarize")
 
             Button {
                 app.showCurrentNoteWindow()
             } label: {
-                Image(systemName: "note.text")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.primary)
+                EarshotLogoView(color: .white, size: 13)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffect(Self.darkGlassInteractive, in: .circle)
             .glassEffectID("notes", in: glassNS)
             .help("Open note")
         }

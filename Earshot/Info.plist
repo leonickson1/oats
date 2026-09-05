@@ -11,7 +11,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Earshot</string>
+	<string>Oats</string>
+	<key>CFBundleDisplayName</key>
+	<string>Oats</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -25,11 +27,11 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Earshot uses the microphone to transcribe your voice on this Mac. Audio never leaves your device.</string>
+	<string>Oats uses the microphone to transcribe your voice on this Mac. Audio never leaves your device.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Earshot captures system audio to transcribe the other side of your calls on this Mac. No bot joins your meetings and audio never leaves your device.</string>
+	<string>Oats captures system audio to transcribe the other side of your calls on this Mac. No bot joins your meetings and audio never leaves your device.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Earshot shows your upcoming meetings so you can start a note for one with a single click. Calendar data stays on this Mac.</string>
+	<string>Oats shows your upcoming meetings so you can start a note for one with a single click. Calendar data stays on this Mac.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

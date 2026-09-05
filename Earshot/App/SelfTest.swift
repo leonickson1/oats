@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreGraphics
 
 // Debug hook: EARSHOT_SELFTEST_AUDIO=/path/to/audio launches the app, runs the
 // file through the exact transcription pipeline used for meetings, writes the
@@ -7,11 +8,89 @@ import AVFoundation
 // agents verify the pipeline without a microphone.
 enum SelfTest {
     static func runIfRequested() {
+        if ProcessInfo.processInfo.environment["EARSHOT_SELFTEST_LOGIC"] != nil {
+            runLogic()
+            return
+        }
         if let secs = ProcessInfo.processInfo.environment["EARSHOT_SELFTEST_MIC"] {
             runMic(seconds: Double(secs) ?? 6)
             return
         }
         runFile()
+    }
+
+    // EARSHOT_SELFTEST_LOGIC=1 exercises the pure logic the UI depends on (graph
+    // build/parse, action parsing, layout, space storage, emoji detection),
+    // writes PASS/FAIL lines to /tmp/earshot-logic.txt, and exits non-zero if any
+    // check fails. No microphone, no models, no GUI.
+    static func runLogic() {
+        Task { @MainActor in
+            var lines: [String] = []
+            var failures = 0
+            func check(_ name: String, _ condition: Bool) {
+                lines.append("\(condition ? "PASS" : "FAIL")  \(name)")
+                if !condition { failures += 1 }
+            }
+
+            // Knowledge graph: two meetings that both mention Sarah must merge her
+            // into one node (weight 2, in both meetings) with two meeting nodes.
+            let n1 = UUID(), n2 = UUID()
+            let g1 = NoteGraph(
+                entities: [GraphEntity(name: "Sarah", kind: .person),
+                           GraphEntity(name: "Apollo", kind: .project)],
+                relations: [GraphRelation(from: "Sarah", to: "Apollo", type: "leads")])
+            let g2 = NoteGraph(entities: [GraphEntity(name: "sarah", kind: .person)], relations: [])
+            let kg = GraphBuilder.build(notes: [(id: n1, title: "M1", graph: g1),
+                                                (id: n2, title: "M2", graph: g2)])
+            let sarah = kg.nodes.first { $0.id == "person:sarah" }
+            check("graph merges shared entity across meetings", sarah?.weight == 2 && sarah?.noteIDs.count == 2)
+            let meetingNodes = kg.nodes.filter { if case .meeting = $0.kind { return true }; return false }
+            check("graph has one node per meeting", meetingNodes.count == 2)
+            check("graph has entity nodes", kg.nodes.contains { $0.id == "project:apollo" })
+
+            // Tolerant JSON parses.
+            let pg = GraphParsing.parse("sure: {\"entities\":[{\"name\":\"Acme\",\"kind\":\"org\"}],\"relations\":[]} ok")
+            check("graph JSON parse tolerates surrounding prose", pg.entities.count == 1 && pg.entities.first?.kind == .org)
+            let acts = ActionParsing.parse("Here you go [{\"text\":\"Send the deck\",\"owner\":\"Marcus\"},{\"text\":\"\",\"owner\":null}]")
+            check("action parse keeps real items, drops empty", acts.count == 1 && acts.first?.owner == "Marcus")
+
+            // Force layout must place every node at a finite, in-bounds point.
+            let size = CGSize(width: 600, height: 400)
+            let pos = ForceLayout.layout(nodes: kg.nodes, edges: kg.edges, size: size, iterations: 80)
+            var layoutOK = pos.count == kg.nodes.count
+            for (_, p) in pos where !(p.x.isFinite && p.y.isFinite && p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height) {
+                layoutOK = false
+            }
+            check("force layout is finite and in-bounds", layoutOK)
+
+            // Emoji vs SF Symbol detection for space icons.
+            check("emoji detection", SpaceGlyph.isEmoji("📚") && !SpaceGlyph.isEmoji("folder") && !SpaceGlyph.isEmoji(""))
+
+            // SpaceStore full round-trip on disk, self-cleaning (net-zero).
+            let store = SpaceStore()
+            let before = store.spaces.count
+            let sp = store.create(name: "SelfTest Space", symbol: "🧪")
+            check("space created with emoji icon", store.space(id: sp.id)?.symbol == "🧪")
+            let reloaded = SpaceStore()
+            check("space persists across reload", reloaded.space(id: sp.id)?.name == "SelfTest Space")
+            store.rename(id: sp.id, to: "SelfTest Renamed", symbol: "🚀")
+            check("space rename and icon change", store.space(id: sp.id)?.name == "SelfTest Renamed" && store.space(id: sp.id)?.symbol == "🚀")
+            let noteID = UUID()
+            store.add(noteID: noteID, to: sp.id)
+            check("space add meeting", store.space(id: sp.id)?.noteIDs.contains(noteID) == true)
+            store.toggle(noteID: noteID, in: sp.id)
+            check("space toggle removes meeting", store.space(id: sp.id)?.noteIDs.contains(noteID) == false)
+            store.delete(id: sp.id)
+            let after = SpaceStore()
+            check("space deleted and cleaned up", after.space(id: sp.id) == nil && after.spaces.count == before)
+
+            lines.append("INFO  Apple Intelligence: \(AppleModel.isAvailable ? "available" : (AppleModel.reason ?? "unavailable"))")
+
+            let summary = failures == 0 ? "ALL \(lines.count - 1) CHECKS PASSED" : "\(failures) FAILURE(S) of \(lines.count - 1)"
+            lines.insert(summary, at: 0)
+            try? lines.joined(separator: "\n").write(to: URL(fileURLWithPath: "/tmp/earshot-logic.txt"), atomically: true, encoding: .utf8)
+            exit(failures == 0 ? 0 : 1)
+        }
     }
 
     // Records from the real mic for N seconds through the meeting pipeline and

@@ -8,6 +8,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     private var mainWindow: NSWindow?
 
+    var isMainVisible: Bool { mainWindow?.isVisible ?? false }
+
     func showMain(app: AppState) {
         if let mainWindow {
             mainWindow.makeKeyAndOrderFront(nil)
@@ -20,13 +22,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
             .environmentObject(app.agent)
             .environmentObject(app.capture)
             .environmentObject(app.calendar)
+            .environmentObject(app.askStore)
+            .environmentObject(app.chat)
+            .environmentObject(app.spaces)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1060, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.title = "Earshot"
+        window.title = "Oats"
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 880, height: 560)
