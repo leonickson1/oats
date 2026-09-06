@@ -11,6 +11,9 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     from: "0.12.4"
+  RichTextKit:
+    url: https://github.com/danielsaidi/RichTextKit.git
+    from: "1.0.0"
 targets:
   Earshot:
     type: application
@@ -20,12 +23,13 @@ targets:
     dependencies:
       - package: WhisperKit
       - package: FluidAudio
+      - package: RichTextKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.earshot.app
         PRODUCT_NAME: Oats
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 2
         INFOPLIST_FILE: Earshot/Info.plist
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_IDENTITY: "Apple Development"

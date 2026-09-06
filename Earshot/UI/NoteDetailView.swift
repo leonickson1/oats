@@ -1,11 +1,18 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import RichTextKit
 
 enum NoteTab: String, CaseIterable {
     case thoughts = "My thoughts"
     case transcript = "Transcript"
     case summary = "Summary"
+}
+
+// A fresh capture whose read-off text is ready to paste below the image.
+private struct CaptureTextOffer {
+    let attachment: Attachment
+    let text: String
 }
 
 struct NoteDetailView: View {
@@ -19,8 +26,8 @@ struct NoteDetailView: View {
 
     @State private var tab: NoteTab = .transcript
     @State private var title = ""
-    @State private var thoughts = AttributedString()
-    @State private var selection = AttributedTextSelection()
+    @State private var thoughtsAttr = NSAttributedString()
+    @StateObject private var rich = RichTextContext()
     @State private var attachments: [Attachment] = []
     @State private var chat: [ChatMessage] = []
     @State private var askText = ""
@@ -31,6 +38,7 @@ struct NoteDetailView: View {
     @State private var linkText = ""
     @State private var showImagePicker = false
     @State private var saveDebounce: Task<Void, Never>?
+    @State private var textOffer: CaptureTextOffer?
     @StateObject private var player = AudioPlaybackController()
 
     private var isLiveNote: Bool { recorder.isActive && recorder.currentNoteID == noteID }
@@ -80,7 +88,6 @@ struct NoteDetailView: View {
         .onAppear(perform: load)
         .onDisappear { player.teardown() }
         .onChange(of: store.revision) { reload() }
-        .onChange(of: thoughts) { scheduleSave() }
         .onChange(of: title) {
             guard loaded, var meta = store.meta(id: noteID), meta.title != title, !title.isEmpty else { return }
             meta.title = title
@@ -90,8 +97,15 @@ struct NoteDetailView: View {
         .toolbar {
             ToolbarItem {
                 Button {
+                    // Captures always land inline in the notes. From another tab
+                    // the note may not have a cursor yet, so this appends at the end.
+                    let atEnd = tab != .thoughts
+                    tab = .thoughts
                     Task {
-                        _ = await capture.captureRegion(noteID: noteID, at: isLiveNote ? recorder.elapsed : 0)
+                        if let att = await capture.captureRegion(noteID: noteID, at: isLiveNote ? recorder.elapsed : 0, inline: true) {
+                            insertInline(capture.imageURL(noteID: noteID, att), atEnd: atEnd)
+                            offerCaptureText(filename: att.value)
+                        }
                         attachments = store.loadAttachments(noteID: noteID)
                     }
                 } label: {
@@ -149,8 +163,10 @@ struct NoteDetailView: View {
         .fileImporter(isPresented: $showImagePicker, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result {
                 let scoped = url.startAccessingSecurityScopedResource()
-                capture.addImage(noteID: noteID, from: url, at: isLiveNote ? recorder.elapsed : 0)
+                let dest = capture.addImage(noteID: noteID, from: url, at: isLiveNote ? recorder.elapsed : 0, inline: true)
                 if scoped { url.stopAccessingSecurityScopedResource() }
+                insertInline(dest)
+                if let dest { offerCaptureText(filename: dest.lastPathComponent) }
                 attachments = store.loadAttachments(noteID: noteID)
             }
         }
@@ -162,7 +178,7 @@ struct NoteDetailView: View {
         guard !loaded else { return }
         let meta = store.meta(id: noteID)
         title = meta?.title ?? "New note"
-        thoughts = store.loadRichThoughts(noteID: noteID)
+        thoughtsAttr = NotesRich.normalized(store.loadThoughtsAttributed(noteID: noteID))
         chat = store.loadChat(noteID: noteID)
         attachments = store.loadAttachments(noteID: noteID)
         savedSegments = store.loadSegments(noteID: noteID)
@@ -185,12 +201,101 @@ struct NoteDetailView: View {
     private func scheduleSave() {
         guard loaded else { return }
         saveDebounce?.cancel()
-        let snapshot = thoughts
+        let snapshot = thoughtsAttr
         saveDebounce = Task {
             try? await Task.sleep(for: .milliseconds(600))
             guard !Task.isCancelled else { return }
-            store.saveThoughts(noteID: noteID, snapshot)
+            store.saveThoughtsAttributed(noteID: noteID, snapshot)
         }
+    }
+
+    // Applies one edit to both copies of the document: the mirror the view holds
+    // (thoughtsAttr, which is what gets saved) and the live editor, through
+    // RichTextKit's action pipeline. Typing keeps them converged afterwards.
+    private func applyEdit(_ piece: NSAttributedString, at range: NSRange) {
+        let mirror = NSMutableAttributedString(attributedString: thoughtsAttr)
+        let location = min(range.location, mirror.length)
+        let safe = NSRange(location: location, length: min(range.length, mirror.length - location))
+        mirror.replaceCharacters(in: safe, with: piece)
+        thoughtsAttr = mirror
+        rich.trigger(.replaceText(in: safe, with: piece))
+        rich.trigger(.selectRange(NSRange(location: safe.location + piece.length, length: 0)))
+        scheduleSave()
+    }
+
+    // Places a just-added image in the notes editor at the cursor, on its own line.
+    // atEnd appends instead, for captures taken while another tab was open.
+    private func insertInline(_ url: URL?, atEnd: Bool = false) {
+        guard let url else { return }
+        let range = atEnd ? NSRange(location: thoughtsAttr.length, length: 0) : rich.selectedRange
+        applyEdit(NotesRich.imagePiece(url: url), at: range)
+    }
+
+    // Once the on-device OCR of a fresh capture lands, offer its text with one
+    // click, right in the editor. No expanding, no extra steps.
+    private func offerCaptureText(filename: String) {
+        Task {
+            var found: Attachment?
+            for _ in 0..<20 {
+                found = store.loadAttachments(noteID: noteID).first(where: { $0.value == filename })
+                if found?.ocrText != nil { break }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            attachments = store.loadAttachments(noteID: noteID)
+            guard let found, let text = found.ocrText,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                textOffer = CaptureTextOffer(attachment: found, text: text)
+            }
+        }
+    }
+
+    // Selecting an inline image surfaces the paste-its-text offer for it; moving
+    // the selection anywhere else puts the bar away.
+    private func updateOfferForSelection() {
+        guard tab == .thoughts else { return }
+        let selection = rich.selectedRange
+        if selection.length > 0,
+           let filename = thoughtsAttr.captureFilename(in: selection),
+           let found = attachments.first(where: { $0.value == filename }),
+           let text = found.ocrText,
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if textOffer?.attachment.id != found.id {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    textOffer = CaptureTextOffer(attachment: found, text: text)
+                }
+            }
+        } else if selection.length > 0, textOffer != nil {
+            withAnimation { textOffer = nil }
+        }
+    }
+
+    // Places the text read from a capture under that image in the notes. Only the
+    // text is ever inserted, never another copy of the image: if the image cannot
+    // be located in the document, the text goes at the end on its own.
+    private func insertCaptureText(_ attachment: Attachment, _ text: String) {
+        let piece = NotesRich.textPiece(text)
+        if let imageRange = thoughtsAttr.rangeOfAttachment(filename: attachment.value) {
+            applyEdit(piece, at: NSRange(location: imageRange.location + imageRange.length, length: 0))
+        } else {
+            applyEdit(piece, at: NSRange(location: thoughtsAttr.length, length: 0))
+        }
+    }
+
+    // Removes a capture everywhere: its card in the strip, its file on disk, and
+    // its inline copy in the notes text, if it has one.
+    private func deleteCapture(_ attachment: Attachment) {
+        if attachment.kind == "image", let imageRange = thoughtsAttr.rangeOfAttachment(filename: attachment.value) {
+            // Take the following newline with it so no blank line is left behind.
+            var range = imageRange
+            let after = imageRange.location + imageRange.length
+            if after < thoughtsAttr.length, thoughtsAttr.attributedSubstring(from: NSRange(location: after, length: 1)).string == "\n" {
+                range.length += 1
+            }
+            applyEdit(NSAttributedString(string: ""), at: range)
+        }
+        capture.deleteAttachment(noteID: noteID, attachment)
+        attachments = store.loadAttachments(noteID: noteID)
     }
 
     // MARK: - Header
@@ -271,44 +376,106 @@ struct NoteDetailView: View {
 
     private var thoughtsTab: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(text: $thoughts, selection: $selection) {
+            RichTextToolbar(context: rich) {
                 showLinkPrompt = true
             } onAttachImage: {
                 showImagePicker = true
             } onCapture: {
                 Task {
-                    _ = await capture.captureRegion(noteID: noteID, at: isLiveNote ? recorder.elapsed : 0)
+                    let att = await capture.captureRegion(noteID: noteID, at: isLiveNote ? recorder.elapsed : 0, inline: true)
+                    if let att {
+                        insertInline(capture.imageURL(noteID: noteID, att))
+                        offerCaptureText(filename: att.value)
+                    }
                     attachments = store.loadAttachments(noteID: noteID)
                 }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 8)
 
-            TextEditor(text: $thoughts, selection: $selection)
-                .font(.system(size: 13.5))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 20)
-                .overlay(alignment: .topLeading) {
-                    if thoughts.characters.isEmpty {
-                        Text("Write notes, or drop in a capture. Oats keeps listening either way.")
-                            .font(.system(size: 13.5))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 25)
-                            .padding(.top, 8)
-                            .allowsHitTesting(false)
-                    }
+            RichTextEditor(text: $thoughtsAttr, context: rich, format: .archivedData) { component in
+                if let textView = component as? NSTextView {
+                    textView.drawsBackground = false
+                    textView.allowsUndo = true
+                    textView.textContainerInset = NSSize(width: 16, height: 12)
+                    textView.isAutomaticQuoteSubstitutionEnabled = false
+                    textView.isAutomaticDashSubstitutionEnabled = false
                 }
+                if let richView = component as? RichTextView {
+                    richView.imageConfiguration = RichTextImageConfiguration(
+                        pasteConfiguration: .enabled,
+                        dropConfiguration: .enabled,
+                        maxImageSize: (width: .points(440), height: .frame)
+                    )
+                }
+            }
+            .richTextEditorStyle(.init(font: NotesRich.font, fontColor: .labelColor, backgroundColor: .clear))
+            .id(noteID)
+            .onChange(of: thoughtsAttr) { scheduleSave() }
+            .onReceive(rich.objectWillChange) { _ in
+                DispatchQueue.main.async { updateOfferForSelection() }
+            }
+            .overlay(alignment: .bottom) {
+                if let offer = textOffer {
+                    HStack(spacing: 10) {
+                        Image(systemName: "text.viewfinder")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text("Text found in this screenshot.")
+                            .font(.system(size: 12.5))
+                        Button("Paste it below the image") {
+                            insertCaptureText(offer.attachment, offer.text)
+                            withAnimation { textOffer = nil }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        Button {
+                            withAnimation { textOffer = nil }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Dismiss")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if thoughtsAttr.length == 0 {
+                    Text("Write notes, screenshot, or drop in an image. It lands right where your cursor is.")
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 21)
+                        .padding(.top, 14)
+                        .allowsHitTesting(false)
+                }
+            }
 
-            if !attachments.isEmpty {
-                AttachmentStrip(noteID: noteID, attachments: $attachments)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
+            // Images live inline in the editor, never in a bottom strip. Only links
+            // keep a card row down here.
+            if attachments.contains(where: { $0.kind == "link" }) {
+                AttachmentStrip(
+                    noteID: noteID,
+                    attachments: $attachments,
+                    onDelete: { attachment in deleteCapture(attachment) }
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
             var added = false
             for url in urls where ["png", "jpg", "jpeg", "gif", "heic", "webp"].contains(url.pathExtension.lowercased()) {
-                capture.addImage(noteID: noteID, from: url, at: isLiveNote ? recorder.elapsed : 0)
+                let dest = capture.addImage(noteID: noteID, from: url, at: isLiveNote ? recorder.elapsed : 0, inline: true)
+                insertInline(dest)
+                if let dest { offerCaptureText(filename: dest.lastPathComponent) }
                 added = true
             }
             if added { attachments = store.loadAttachments(noteID: noteID) }
@@ -613,7 +780,7 @@ struct NoteDetailView: View {
                 prompt = AgentPrompts.chat(
                     question: q,
                     segments: segments,
-                    thoughts: String(thoughts.characters),
+                    thoughts: thoughtsAttr.string,
                     summary: store.loadSummary(noteID: noteID)
                 )
             }

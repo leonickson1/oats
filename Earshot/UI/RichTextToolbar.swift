@@ -1,42 +1,83 @@
 import SwiftUI
+import RichTextKit
 
-// Native rich text controls for the thoughts editor. Uses the macOS 26
-// AttributedString TextEditor APIs; formatting is stored in the note itself.
+// Formatting controls for the thoughts editor. They drive RichTextKit's context,
+// which applies styles to the current selection (or the typing style when nothing
+// is selected) and keeps the buttons lit to match the text under the cursor.
 struct RichTextToolbar: View {
-    @Binding var text: AttributedString
-    @Binding var selection: AttributedTextSelection
+    @ObservedObject var context: RichTextContext
     var onAddLink: () -> Void
     var onAttachImage: () -> Void
     var onCapture: () -> Void
 
-    @Environment(\.fontResolutionContext) private var fontContext
-
     var body: some View {
         HStack(spacing: 4) {
-            formatButton("bold", help: "Bold") { toggleBold() }
+            styleButton("bold", style: .bold, help: "Bold")
                 .keyboardShortcut("b", modifiers: .command)
-            formatButton("italic", help: "Italic") { toggleItalic() }
+            styleButton("italic", style: .italic, help: "Italic")
                 .keyboardShortcut("i", modifiers: .command)
-            formatButton("underline", help: "Underline") { toggleUnderline() }
+            styleButton("underline", style: .underlined, help: "Underline")
                 .keyboardShortcut("u", modifiers: .command)
-            formatButton("strikethrough", help: "Strikethrough") { toggleStrikethrough() }
+            styleButton("strikethrough", style: .strikethrough, help: "Strikethrough")
 
             Divider().frame(height: 14).padding(.horizontal, 3)
 
-            formatButton("link", help: "Add link") { onAddLink() }
-            formatButton("photo", help: "Attach image") { onAttachImage() }
-            formatButton("camera.viewfinder", help: "Capture screen area") { onCapture() }
+            actionButton("link", help: "Add link") { onAddLink() }
+            actionButton("photo", help: "Insert image inline") { onAttachImage() }
+            actionButton("camera.viewfinder", help: "Capture screen area, placed at the cursor") { onCapture() }
 
             Spacer()
 
-            Button("Clear formatting") { clearFormatting() }
-                .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+            RichTextFont.Picker(selection: $context.fontName)
+                .frame(width: 132)
+                .help("Font")
+
+            HStack(spacing: 2) {
+                actionButton("minus", help: "Smaller text") { context.trigger(.stepFontSize(points: -1)) }
+                Text("\(Int(context.fontSize.rounded()))")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 18)
+                actionButton("plus", help: "Larger text") { context.trigger(.stepFontSize(points: 1)) }
+            }
+
+            ColorPicker("", selection: context.binding(for: .foreground))
+                .labelsHidden()
+                .frame(width: 26)
+                .help("Text color")
+
+            Divider().frame(height: 14).padding(.horizontal, 3)
+
+            Button("Clear formatting") {
+                for style in [RichTextStyle.bold, .italic, .underlined, .strikethrough] {
+                    context.setStyle(style, to: false)
+                }
+                context.setColor(.foreground, to: .labelColor)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
         }
     }
 
-    private func formatButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    private func styleButton(_ symbol: String, style: RichTextStyle, help: String) -> some View {
+        let active = context.hasStyle(style)
+        return Button {
+            context.toggleStyle(style)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 26, height: 24)
+                .background(active ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(active ? .primary : .secondary)
+        .help(help)
+    }
+
+    private func actionButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .medium))
@@ -46,45 +87,5 @@ struct RichTextToolbar: View {
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .help(help)
-    }
-
-    // MARK: - Transforms
-
-    private func toggleBold() {
-        text.transformAttributes(in: &selection) { container in
-            let font = container.font ?? .body
-            let isBold = font.resolve(in: fontContext).isBold
-            container.font = font.bold(!isBold)
-        }
-    }
-
-    private func toggleItalic() {
-        text.transformAttributes(in: &selection) { container in
-            let font = container.font ?? .body
-            let isItalic = font.resolve(in: fontContext).isItalic
-            container.font = font.italic(!isItalic)
-        }
-    }
-
-    private func toggleUnderline() {
-        text.transformAttributes(in: &selection) { container in
-            container.underlineStyle = container.underlineStyle == nil ? .single : nil
-        }
-    }
-
-    private func toggleStrikethrough() {
-        text.transformAttributes(in: &selection) { container in
-            container.strikethroughStyle = container.strikethroughStyle == nil ? .single : nil
-        }
-    }
-
-    private func clearFormatting() {
-        text.transformAttributes(in: &selection) { container in
-            container.font = nil
-            container.underlineStyle = nil
-            container.strikethroughStyle = nil
-            container.foregroundColor = nil
-            container.link = nil
-        }
     }
 }

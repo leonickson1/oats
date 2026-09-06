@@ -20,9 +20,18 @@ final class UpdateChecker: ObservableObject {
     @Published var lastResult: String?
     @Published var showSheet = false
 
-    // Point this at your hosted appcast.json (e.g. a GitHub raw URL or release).
-    @AppStorage("updateFeedURL") var feedURL = "https://raw.githubusercontent.com/earshot-app/earshot/main/appcast.json"
+    // The appcast lives at the root of the public repo; releases carry the DMG.
+    static let defaultFeedURL = "https://raw.githubusercontent.com/leonickson1/oats/main/appcast.json"
+    @AppStorage("updateFeedURL") var feedURL = UpdateChecker.defaultFeedURL
     @AppStorage("autoCheckUpdates") var autoCheck = true
+
+    private init() {
+        // Early builds persisted a placeholder feed URL; steer them to the real one.
+        if let stored = UserDefaults.standard.string(forKey: "updateFeedURL"),
+           stored.contains("earshot-app/earshot") {
+            UserDefaults.standard.set(Self.defaultFeedURL, forKey: "updateFeedURL")
+        }
+    }
 
     var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"

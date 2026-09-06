@@ -24,15 +24,6 @@ struct ChatSidebar: View {
                 Text("Oats")
                     .font(.system(size: 17, weight: .medium, design: .serif))
                 Spacer()
-                Button {
-                    app.newChatInWindow()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("New chat")
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -104,7 +95,7 @@ struct ChatSidebar: View {
                     .buttonStyle(.plain)
                 }
 
-                Section("Chats") {
+                Section {
                     if chatItems.isEmpty {
                         Text("Ask something with \(HotkeyManager.askDisplay), or chat inside a meeting. It shows up here.")
                             .font(.system(size: 11.5))
@@ -121,6 +112,21 @@ struct ChatSidebar: View {
                                     }
                                 }
                         }
+                    }
+                } header: {
+                    HStack {
+                        Text("Chats")
+                        Spacer()
+                        Button {
+                            app.newChatInWindow()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("New chat")
+                        .padding(.trailing, 10)
                     }
                 }
             }

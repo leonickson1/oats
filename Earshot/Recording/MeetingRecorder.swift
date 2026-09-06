@@ -447,7 +447,7 @@ final class MeetingRecorder: ObservableObject {
         defer { isSummarizing = false }
         let thoughts = store.loadThoughts(noteID: noteID)
         let captures = store.loadAttachments(noteID: noteID)
-        let prompt = AgentPrompts.summary(segments: segments, thoughts: thoughts, captures: captures)
+        let prompt = AgentPrompts.summary(segments: segments, thoughts: thoughts, captures: captures, assetsDir: store.assetsDir(for: noteID))
         guard let output = try? await agent.run(prompt: prompt) else { return }
 
         var summary = output

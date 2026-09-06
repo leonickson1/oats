@@ -84,6 +84,19 @@ enum SelfTest {
             let after = SpaceStore()
             check("space deleted and cleaned up", after.space(id: sp.id) == nil && after.spaces.count == before)
 
+            check("updater points at the public repo feed",
+                  UpdateChecker.defaultFeedURL.contains("leonickson1/oats") &&
+                  URL(string: UpdateChecker.defaultFeedURL) != nil)
+            check("update version compare", UpdateChecker.shared.isNewer("0.2.0", than: "0.1.0") &&
+                  !UpdateChecker.shared.isNewer("0.2.0", than: "0.2.0") &&
+                  UpdateChecker.shared.isNewer("0.10.0", than: "0.9.1"))
+
+            // The call detector must be able to read the HAL process list at all
+            // (an empty set is fine; an OS error path would also return empty,
+            // so this mainly proves the query does not crash or hang).
+            _ = MeetingDetector.selfTestProbe()
+            check("call detector HAL probe returns", true)
+
             lines.append("INFO  Apple Intelligence: \(AppleModel.isAvailable ? "available" : (AppleModel.reason ?? "unavailable"))")
 
             let summary = failures == 0 ? "ALL \(lines.count - 1) CHECKS PASSED" : "\(failures) FAILURE(S) of \(lines.count - 1)"

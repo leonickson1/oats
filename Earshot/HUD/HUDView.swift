@@ -4,17 +4,24 @@ import SwiftUI
 // grows when you need it, and everything it shows is real signal.
 //   idle collapsed:      small capsule with the Oats mark
 //   idle expanded:       [record] [open notes]        (on hover)
+//   call detected:       [call card] [take notes] [dismiss]
 //   recording collapsed: live bars + elapsed time
 //   recording expanded:  [bars + time] [pause] [stop] [notes]
+// The pill adapts to what is behind it, like native glass: over dark content it
+// is a dark pill with light ink, over a white page a light pill with dark ink.
 struct HUDView: View {
     @ObservedObject var app: AppState
     @ObservedObject var recorder: MeetingRecorder
+    @ObservedObject var backdrop: HUDBackdrop
+    @ObservedObject var meetings: MeetingDetector
     @State private var hovering = false
     @Namespace private var glassNS
 
     init(app: AppState) {
         self.app = app
         self.recorder = app.recorder
+        self.backdrop = app.backdrop
+        self.meetings = app.meetings
     }
 
     private var expanded: Bool { hovering }
@@ -25,6 +32,8 @@ struct HUDView: View {
                 if recorder.isActive {
                     recordingLozenge
                     if expanded { recordingControls }
+                } else if let call = meetings.current {
+                    callOffer(call)
                 } else {
                     if expanded {
                         idleExpanded
@@ -36,23 +45,39 @@ struct HUDView: View {
         }
         .padding(10)
         .onHover { hovering = $0 }
+        // The whole pill renders in the scheme of what is behind it: light glass
+        // with dark ink over a white page, dark glass with light ink otherwise.
+        // Vibrancy and the glass material both key off the scheme, so every
+        // glyph flips together, the way native controls adapt to the wallpaper.
+        .environment(\.colorScheme, backdrop.overLight ? .light : .dark)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: expanded)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isActive)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isPaused)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: meetings.current)
+        .animation(.easeInOut(duration: 0.3), value: backdrop.overLight)
     }
+
+    // MARK: - Adaptive glass
+
+    // A tint in the scheme's own direction keeps the pill reading solid on busy
+    // backgrounds without fighting the adaptive material.
+    private var glass: Glass {
+        backdrop.overLight ? Glass.regular.tint(.white.opacity(0.45)) : Glass.regular.tint(.black.opacity(0.55))
+    }
+    private var glassInteractive: Glass { glass.interactive() }
+    // Explicit, not .primary: the logo bakes its color into an SVG through
+    // NSColor, which resolves semantic colors against the app's appearance
+    // (dark), not the panel's, and would come out white on the light pill.
+    private var ink: Color { backdrop.overLight ? .black.opacity(0.85) : .white }
+    private var inkSecondary: Color { backdrop.overLight ? .black.opacity(0.55) : .white.opacity(0.62) }
 
     // MARK: - Idle
 
-    // A dark tint keeps the glass reading as a solid dark pill even over a bright
-    // window, so the white mark never washes out on a white background.
-    private static let darkGlass = Glass.regular.tint(.black.opacity(0.55))
-    private static let darkGlassInteractive = Glass.regular.tint(.black.opacity(0.55)).interactive()
-
     private var idleLozenge: some View {
-        EarshotLogoView(color: .white, size: 16)
+        EarshotLogoView(color: ink, size: 16)
             .frame(width: 46, height: 26)
             .contentShape(Capsule())
-            .glassEffect(Self.darkGlass, in: .capsule)
+            .glassEffect(glass, in: .capsule)
             .glassEffectID("core", in: glassNS)
             .help("Oats")
     }
@@ -67,27 +92,89 @@ struct HUDView: View {
                     Text("Record")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .frame(height: 30)
                 .padding(.horizontal, 13)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .glassEffect(Self.darkGlassInteractive, in: .capsule)
+            .glassEffect(glassInteractive, in: .capsule)
             .glassEffectID("core", in: glassNS)
             .help("New note  Opt+M")
 
             Button {
                 app.showMainWindow()
             } label: {
-                EarshotLogoView(color: .white, size: 15)
+                EarshotLogoView(color: ink, size: 15)
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(Self.darkGlassInteractive, in: .circle)
+            .glassEffect(glassInteractive, in: .circle)
             .glassEffectID("notes", in: glassNS)
             .help("Open Oats")
+        }
+    }
+
+    // MARK: - Call detected
+
+    private func callOffer(_ call: MeetingDetector.Detection) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 9) {
+                Image(systemName: call.isBrowser ? "video" : "phone.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ink)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Call detected")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ink)
+                    Text(call.appName)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(inkSecondary)
+                }
+            }
+            .fixedSize()
+            .padding(.leading, 13)
+            .padding(.trailing, 11)
+            .frame(height: 34)
+            .contentShape(Capsule())
+            .glassEffect(glass, in: .capsule)
+            .glassEffectID("core", in: glassNS)
+
+            Button {
+                meetings.dismiss()
+                app.startMeetingNote()
+            } label: {
+                HStack(spacing: 7) {
+                    RecordGlyph(color: Theme.record, size: 13)
+                    Text("Take notes")
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .fixedSize()
+                .foregroundStyle(ink)
+                .frame(height: 34)
+                .padding(.horizontal, 13)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(glassInteractive, in: .capsule)
+            .glassEffectID("record", in: glassNS)
+            .help("Start a meeting note for this call")
+
+            Button {
+                meetings.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(inkSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(glassInteractive, in: .circle)
+            .glassEffectID("dismiss", in: glassNS)
+            .help("Not now")
         }
     }
 
@@ -95,18 +182,18 @@ struct HUDView: View {
 
     private var recordingLozenge: some View {
         HStack(spacing: 8) {
-            EarshotLogoView(color: recorder.isPaused ? .secondary : Theme.record, size: 14)
+            EarshotLogoView(color: recorder.isPaused ? inkSecondary : Theme.record, size: 14)
             if recorder.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(inkSecondary)
             } else {
                 WaveformBars(levels: recorder.levels, barColor: Theme.record, barCount: 7, maxHeight: 12)
             }
             Text(recorder.elapsed.clockString)
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -114,7 +201,7 @@ struct HUDView: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .contentShape(Capsule())
-        .glassEffect(Self.darkGlass, in: .capsule)
+        .glassEffect(glass, in: .capsule)
         .glassEffectID("core", in: glassNS)
         .onTapGesture { app.showCurrentNoteWindow() }
         .help(recorder.isPaused ? "Paused" : "Recording")
@@ -127,12 +214,12 @@ struct HUDView: View {
             } label: {
                 Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ink)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(Self.darkGlassInteractive, in: .circle)
+            .glassEffect(glassInteractive, in: .circle)
             .glassEffectID("pause", in: glassNS)
             .help(recorder.isPaused ? "Resume" : "Pause")
 
@@ -146,19 +233,19 @@ struct HUDView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(Self.darkGlassInteractive, in: .circle)
+            .glassEffect(glassInteractive, in: .circle)
             .glassEffectID("stop", in: glassNS)
             .help("Stop and summarize")
 
             Button {
                 app.showCurrentNoteWindow()
             } label: {
-                EarshotLogoView(color: .white, size: 13)
+                EarshotLogoView(color: ink, size: 13)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(Self.darkGlassInteractive, in: .circle)
+            .glassEffect(glassInteractive, in: .circle)
             .glassEffectID("notes", in: glassNS)
             .help("Open note")
         }

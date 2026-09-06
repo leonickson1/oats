@@ -403,7 +403,7 @@ enum AgentPrompts {
     Style rules: plain text or simple markdown. Do not use em dashes anywhere; use commas or periods instead. Be concrete and concise. Never invent facts that are not in the transcript.
     """
 
-    static func transcriptBlock(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = []) -> String {
+    static func transcriptBlock(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = [], assetsDir: URL? = nil) -> String {
         var lines: [String] = []
         for segment in segments where segment.channel != "system" {
             let who = segment.channel == "me" ? "Me" : "Them"
@@ -420,6 +420,17 @@ enum AgentPrompts {
         if !ocr.isEmpty {
             block += "\n\nSCREEN CAPTURES DURING THE MEETING (OCR text from slides or shared screens):\n" + ocr.joined(separator: "\n---\n")
         }
+        // Hand file-capable models (Claude Code, Codex) the actual image paths so
+        // they can open and see the slides directly, not just the OCR text.
+        if let assetsDir {
+            let paths = captures.compactMap { capture -> String? in
+                guard capture.kind == "image" else { return nil }
+                return "[captured at \(capture.t.clockString)] " + assetsDir.appendingPathComponent(capture.value).path
+            }
+            if !paths.isEmpty {
+                block += "\n\nSCREEN CAPTURE IMAGE FILES (if you can open image files, view these to see the slides and charts directly):\n" + paths.joined(separator: "\n")
+            }
+        }
         return block
     }
 
@@ -433,7 +444,7 @@ enum AgentPrompts {
         """
     }
 
-    static func summary(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = []) -> String {
+    static func summary(segments: [TranscriptSegment], thoughts: String, captures: [Attachment] = [], assetsDir: URL? = nil) -> String {
         """
         You are a meeting notes assistant running locally. Summarize this meeting transcript.
 
@@ -451,7 +462,7 @@ enum AgentPrompts {
 
         \(styleRules)
 
-        \(transcriptBlock(segments: segments, thoughts: thoughts, captures: captures))
+        \(transcriptBlock(segments: segments, thoughts: thoughts, captures: captures, assetsDir: assetsDir))
         """
     }
 

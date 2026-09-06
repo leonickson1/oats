@@ -122,6 +122,26 @@ final class NoteStore: ObservableObject {
         (try? String(contentsOf: dir(for: noteID).appendingPathComponent("note.md"), encoding: .utf8)) ?? ""
     }
 
+    // Rich thoughts with inline images, stored as RTFD (which bundles the images).
+    // Always also writes a plain note.md so agents and grep read the text.
+    func saveThoughtsAttributed(noteID: UUID, _ attributed: NSAttributedString) {
+        let range = NSRange(location: 0, length: attributed.length)
+        if let data = try? attributed.data(from: range, documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]) {
+            try? data.write(to: dir(for: noteID).appendingPathComponent("thoughts.rtfd"))
+        }
+        try? attributed.string.write(to: dir(for: noteID).appendingPathComponent("note.md"), atomically: true, encoding: .utf8)
+    }
+
+    func loadThoughtsAttributed(noteID: UUID) -> NSAttributedString {
+        let rtfd = dir(for: noteID).appendingPathComponent("thoughts.rtfd")
+        if let data = try? Data(contentsOf: rtfd),
+           let attributed = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtfd], documentAttributes: nil) {
+            return attributed
+        }
+        // Migrate an older note that only has the AttributedString/plain form.
+        return NSAttributedString(loadRichThoughts(noteID: noteID))
+    }
+
     // MARK: - Attachments (images in assets/, links; listed in attachments.jsonl)
 
     func assetsDir(for id: UUID) -> URL {

@@ -39,8 +39,11 @@ struct Attachment: Identifiable, Codable, Equatable {
     var ocrText: String?
     let t: TimeInterval        // seconds into the recording (0 when not recording)
     let addedAt: Date
+    // True when the image was placed inline in the notes editor, so it is not also
+    // shown in the bottom attachment strip. It still feeds OCR and the AI.
+    var inline: Bool?
 
-    init(kind: String, value: String, title: String? = nil, ocrText: String? = nil, t: TimeInterval) {
+    init(kind: String, value: String, title: String? = nil, ocrText: String? = nil, t: TimeInterval, inline: Bool = false) {
         self.id = UUID()
         self.kind = kind
         self.value = value
@@ -48,6 +51,7 @@ struct Attachment: Identifiable, Codable, Equatable {
         self.ocrText = ocrText
         self.t = t
         self.addedAt = Date()
+        self.inline = inline
     }
 }
 

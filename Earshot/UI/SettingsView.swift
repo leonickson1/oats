@@ -123,6 +123,13 @@ struct BehaviorCard: View {
                 Toggle("", isOn: $app.hudVisible).toggleStyle(.switch).labelsHidden()
             }
             Divider().opacity(0.4)
+            SettingsRow(title: "Offer notes when a call starts", subtitle: "Zoom, Meet, FaceTime, WhatsApp and browser calls raise a small card on the lozenge.") {
+                Toggle("", isOn: Binding(
+                    get: { app.meetings.enabled },
+                    set: { app.meetings.enabled = $0 }
+                )).toggleStyle(.switch).labelsHidden()
+            }
+            Divider().opacity(0.4)
             SettingsRow(title: "Summarize automatically", subtitle: "Write the summary the moment a recording stops.") {
                 Toggle("", isOn: $autoSummary).toggleStyle(.switch).labelsHidden()
             }

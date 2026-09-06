@@ -21,8 +21,8 @@ final class HUDPanel: NSPanel {
         hidesOnDeactivate = false
         isMovableByWindowBackground = true
         becomesKeyOnlyIfNeeded = true
-        // Always dark so the lozenge stays legible over light windows (the glass
-        // would otherwise wash out to near-invisible on a white background).
+        // Starts dark; HUDBackdrop flips this live to match what is behind the
+        // panel, so vibrancy renders dark ink over light content and vice versa.
         appearance = NSAppearance(named: .darkAqua)
 
         let hosting = NSHostingView(rootView: content)

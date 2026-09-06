@@ -31,7 +31,11 @@ struct MainWindowView: View {
             NavigationStack(path: $app.notePath) {
                 HomeView()
                     .navigationDestination(for: UUID.self) { id in
+                        // .id ties the view's state to the note. Without it, starting
+                        // a meeting while another note is open reuses the old view and
+                        // the new meeting shows the previous note's content.
                         NoteDetailView(noteID: id)
+                            .id(id)
                     }
             }
         case .actions:

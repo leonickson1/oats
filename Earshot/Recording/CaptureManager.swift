@@ -20,7 +20,7 @@ final class CaptureManager: ObservableObject {
 
     // MARK: - Screen capture (interactive region, like Shift+Cmd+4)
 
-    func captureRegion(noteID: UUID, at t: TimeInterval) async -> Attachment? {
+    func captureRegion(noteID: UUID, at t: TimeInterval, inline: Bool = false) async -> Attachment? {
         guard !isCapturing else { return nil }
         isCapturing = true
         defer { isCapturing = false }
@@ -42,29 +42,42 @@ final class CaptureManager: ObservableObject {
         }
         guard FileManager.default.fileExists(atPath: destination.path) else { return nil }
 
-        let attachment = Attachment(kind: "image", value: filename, t: t)
+        let attachment = Attachment(kind: "image", value: filename, t: t, inline: inline)
         store.appendAttachment(noteID: noteID, attachment)
+        autoOCR(noteID: noteID, attachment: attachment)
         return attachment
+    }
+
+    // Read text off every capture automatically so it always feeds the summary,
+    // no right-click required. Idempotent and off the main thread.
+    private func autoOCR(noteID: UUID, attachment: Attachment) {
+        Task { _ = await runOCR(noteID: noteID, attachment: attachment) }
     }
 
     // MARK: - Image files (drag and drop or file picker)
 
-    func addImage(noteID: UUID, from sourceURL: URL, at t: TimeInterval) {
+    @discardableResult
+    func addImage(noteID: UUID, from sourceURL: URL, at t: TimeInterval, inline: Bool = false) -> URL? {
         let filename = "image-\(Int(Date().timeIntervalSince1970))-\(sourceURL.lastPathComponent)"
         let destination = store.assetsDir(for: noteID).appendingPathComponent(filename)
         do {
             try FileManager.default.copyItem(at: sourceURL, to: destination)
         } catch {
-            return
+            return nil
         }
-        store.appendAttachment(noteID: noteID, Attachment(kind: "image", value: filename, t: t))
+        let attachment = Attachment(kind: "image", value: filename, t: t, inline: inline)
+        store.appendAttachment(noteID: noteID, attachment)
+        autoOCR(noteID: noteID, attachment: attachment)
+        return destination
     }
 
     func addImage(noteID: UUID, imageData: Data, at t: TimeInterval) {
         let filename = "image-\(Int(Date().timeIntervalSince1970)).png"
         let destination = store.assetsDir(for: noteID).appendingPathComponent(filename)
         guard (try? imageData.write(to: destination)) != nil else { return }
-        store.appendAttachment(noteID: noteID, Attachment(kind: "image", value: filename, t: t))
+        let attachment = Attachment(kind: "image", value: filename, t: t)
+        store.appendAttachment(noteID: noteID, attachment)
+        autoOCR(noteID: noteID, attachment: attachment)
     }
 
     // MARK: - Links (title fetched natively via LinkPresentation)

@@ -26,6 +26,8 @@ final class AppState: ObservableObject {
     let ask: AskController       // the summon popup (Opt+Space)
     let chat: ChatEngine        // the in-window ChatGPT-style conversation
     let spaces: SpaceStore      // workspaces of meetings
+    let meetings = MeetingDetector()   // notices calls starting elsewhere
+    let backdrop = HUDBackdrop()       // screen brightness behind the HUD
 
     // Navigation: the home screen pushes note detail onto this path.
     @Published var notePath: [UUID] = []
@@ -41,6 +43,7 @@ final class AppState: ObservableObject {
     }
 
     private var hudPanel: HUDPanel?
+    private var cancellables: Set<AnyCancellable> = []
 
     private init() {
         let store = NoteStore()
@@ -64,6 +67,16 @@ final class AppState: ObservableObject {
         hudPanel = panel
         panel.positionBottomCenter()
         updateHUDVisibility()
+        backdrop.start(panel: panel)
+        meetings.start()
+        // A detected call must be able to raise the HUD even when it was
+        // stepped aside (Oats frontmost); a dismissal lowers it again.
+        meetings.$current
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.refreshHUD() }
+            }
+            .store(in: &cancellables)
 
         HotkeyManager.shared.onNewNote = { [weak self] in
             guard let self else { return }
@@ -111,7 +124,11 @@ final class AppState: ObservableObject {
 
     private func updateHUDVisibility() {
         guard let hudPanel else { return }
-        if hudVisible && !NSApp.isActive {
+        // While recording, the lozenge stays put even when Oats is frontmost, so
+        // opening the meeting from it never makes it vanish. A detected call
+        // also holds it up, since the offer card lives there. When idle, it
+        // steps aside inside the app, where the window has its own controls.
+        if hudVisible && (!NSApp.isActive || recorder.isActive || meetings.current != nil) {
             hudPanel.positionBottomCenter()
             hudPanel.orderFrontRegardless()
         } else {
@@ -135,11 +152,15 @@ final class AppState: ObservableObject {
             } else {
                 showMainWindow()
             }
+            refreshHUD()
         }
     }
 
     func stopMeetingNote() {
-        Task { await recorder.stop() }
+        Task {
+            await recorder.stop()
+            refreshHUD()
+        }
     }
 
     func resumeMeetingNote(id: UUID) {
@@ -148,6 +169,7 @@ final class AppState: ObservableObject {
             _ = await recorder.resumeNote(id: id)
             notePath = [id]
             showMainWindow()
+            refreshHUD()
         }
     }
 
