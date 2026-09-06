@@ -7,6 +7,11 @@ import ScreenCaptureKit
 // display under the panel (our own window excluded) and average its luminance.
 // Uses the screen recording permission the app already holds for captures; with
 // no permission it stays in the dark look, which was the old behavior.
+//
+// Robustness matters more than elegance here: if this stalls, every glyph in
+// the HUD goes invisible over white. So a stuck ScreenCaptureKit call gets a
+// hard timeout, a watchdog revives the loop if a capture hangs anyway, and
+// results are generation-gated so a stale task can never overwrite fresh state.
 @MainActor
 final class HUDBackdrop: ObservableObject {
     @Published private(set) var overLight = false
@@ -16,6 +21,8 @@ final class HUDBackdrop: ObservableObject {
     private var filter: SCContentFilter?
     private var displayFrame: CGRect = .zero   // Cocoa coordinates of the filtered display
     private var sampling = false
+    private var samplingSince: Date?
+    private var generation = 0   // bumped when a stuck task is abandoned
 
     func start(panel: NSPanel) {
         self.panel = panel
@@ -41,49 +48,118 @@ final class HUDBackdrop: ObservableObject {
     private let debug = ProcessInfo.processInfo.environment["EARSHOT_HUD_DEBUG"] == "1"
 
     func sampleSoon() {
-        guard let panel, panel.isVisible, !sampling else {
-            if debug { fputs("backdrop: skip visible=\(panel?.isVisible ?? false) sampling=\(sampling)" + "\n", stderr) }
+        guard let panel, panel.isVisible else {
+            if debug { fputs("backdrop: skip visible=\(panel?.isVisible ?? false)" + "\n", stderr) }
             return
+        }
+        if sampling {
+            // Watchdog: a capture that has been "in flight" this long is hung
+            // inside ScreenCaptureKit. Abandon it (its results are ignored via
+            // the generation) and take over, otherwise adaptation would stay
+            // dead for the rest of the session.
+            if let since = samplingSince, Date().timeIntervalSince(since) > 8 {
+                if debug { fputs("backdrop: watchdog reviving stuck sample" + "\n", stderr) }
+                generation += 1
+                sampling = false
+                filter = nil
+            } else {
+                if debug { fputs("backdrop: skip sampling in flight" + "\n", stderr) }
+                return
+            }
         }
         guard CGPreflightScreenCaptureAccess() else {
             if debug { fputs("backdrop: no screen permission" + "\n", stderr) }
             return
         }
         sampling = true
+        samplingSince = Date()
+        let gen = generation
         let frame = panel.frame
         let windowID = CGWindowID(panel.windowNumber)
         Task { @MainActor in
-            defer { sampling = false }
+            defer { if gen == generation { sampling = false } }
             do {
                 // The filter captures one display. If the panel has moved to a
                 // different monitor since it was built, rebuild it there,
                 // otherwise we would keep sampling the old screen.
                 if filter != nil, !displayFrame.intersects(frame) { filter = nil }
-                if filter == nil { try await rebuildFilter(around: frame, excluding: windowID) }
-                guard let filter else {
-                    if debug { fputs("backdrop: no filter" + "\n", stderr) }
-                    return
+                if filter == nil {
+                    let built = try await Self.withTimeout(seconds: 6) {
+                        try await Self.buildFilter(around: frame, excluding: windowID)
+                    }
+                    guard gen == generation else { return }
+                    guard let built else {
+                        if debug { fputs("backdrop: no display for filter" + "\n", stderr) }
+                        return
+                    }
+                    filter = built.filter
+                    displayFrame = built.displayFrame
                 }
-                try await sample(frame: frame, filter: filter)
+                guard let filter else { return }
+                let luminance = try await Self.withTimeout(seconds: 5) {
+                    try await Self.measure(frame: frame, filter: filter, displayFrame: self.displayFrame)
+                }
+                guard gen == generation, let luminance else { return }
+                apply(luminance: luminance)
             } catch {
                 if debug { fputs("backdrop: sample failed \(error)" + "\n", stderr) }
-                filter = nil   // stale display or window reference; rebuilt next tick
+                if gen == generation { filter = nil }   // stale reference; rebuilt next tick
             }
         }
     }
 
-    private func rebuildFilter(around frame: CGRect, excluding windowID: CGWindowID) async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(frame) }) ?? NSScreen.main,
-              let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-              let display = content.displays.first(where: { $0.displayID == screenNumber })
-        else { return }
-        let ours = content.windows.filter { $0.windowID == windowID }
-        filter = SCContentFilter(display: display, excludingWindows: ours)
-        displayFrame = screen.frame
+    private func apply(luminance: Double) {
+        if debug { fputs("backdrop: luminance \(luminance) overLight=\(overLight)" + "\n", stderr) }
+        // Hysteresis so a busy mid-grey background never makes the pill flicker.
+        if luminance > 0.62, !overLight {
+            overLight = true
+        } else if luminance < 0.48, overLight {
+            overLight = false
+        }
+        // Vibrancy blending happens at the panel's AppKit layer, so the panel
+        // appearance must flip along with the SwiftUI scheme; otherwise dark
+        // ink gets vibrancy-brightened back to white over a white page.
+        let wanted: NSAppearance.Name = overLight ? .aqua : .darkAqua
+        if panel?.appearance?.name != wanted {
+            panel?.appearance = NSAppearance(named: wanted)
+        }
     }
 
-    private func sample(frame: CGRect, filter: SCContentFilter) async throws {
+    // ScreenCaptureKit calls can hang indefinitely; every await goes through
+    // this race so one bad call costs seconds, not the session.
+    private static func withTimeout<T: Sendable>(
+        seconds: Double,
+        _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            guard let first = try await group.next() else { throw CancellationError() }
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private struct BuiltFilter: Sendable {
+        let filter: SCContentFilter
+        let displayFrame: CGRect
+    }
+
+    private static func buildFilter(around frame: CGRect, excluding windowID: CGWindowID) async throws -> BuiltFilter? {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(frame) }) ?? NSScreen.main
+        guard let screen,
+              let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+              let display = content.displays.first(where: { $0.displayID == screenNumber })
+        else { return nil }
+        let ours = content.windows.filter { $0.windowID == windowID }
+        return BuiltFilter(filter: SCContentFilter(display: display, excludingWindows: ours), displayFrame: screen.frame)
+    }
+
+    private static func measure(frame: CGRect, filter: SCContentFilter, displayFrame: CGRect) async throws -> Double? {
         // The panel frame, translated into the display's top-left-origin space.
         let local = CGRect(
             x: frame.minX - displayFrame.minX,
@@ -106,21 +182,7 @@ final class HUDBackdrop: ObservableObject {
             width: local.width / max(displayFrame.width, 1),
             height: local.height / max(displayFrame.height, 1)
         )
-        guard let luminance = Self.meanLuminance(of: image, region: region) else { return }
-        if debug { fputs("backdrop: luminance \(luminance) overLight=\(overLight)" + "\n", stderr) }
-        // Hysteresis so a busy mid-grey background never makes the pill flicker.
-        if luminance > 0.62, !overLight {
-            overLight = true
-        } else if luminance < 0.48, overLight {
-            overLight = false
-        }
-        // Vibrancy blending happens at the panel's AppKit layer, so the panel
-        // appearance must flip along with the SwiftUI scheme; otherwise dark
-        // ink gets vibrancy-brightened back to white over a white page.
-        let wanted: NSAppearance.Name = overLight ? .aqua : .darkAqua
-        if panel?.appearance?.name != wanted {
-            panel?.appearance = NSAppearance(named: wanted)
-        }
+        return meanLuminance(of: image, region: region)
     }
 
     // Average luminance inside `region`, given normalized with top-left origin

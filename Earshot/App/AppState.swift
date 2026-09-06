@@ -166,6 +166,9 @@ final class AppState: ObservableObject {
         if hudVisible && (!NSApp.isActive || recorder.isActive || meetings.current != nil) {
             hudPanel.positionBottomCenter()
             hudPanel.orderFrontRegardless()
+            // Adapt to what is behind it the moment it appears, not on the
+            // next timer tick.
+            backdrop.sampleSoon()
         } else {
             hudPanel.orderOut(nil)
         }
