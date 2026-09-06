@@ -42,7 +42,12 @@ final class HUDPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     func positionBottomCenter() {
-        guard let screen = NSScreen.main else { return }
+        // The screen the user is working on: where the mouse is. On a second
+        // monitor the lozenge (and the call offer) shows up there, not on
+        // whichever display happens to hold the key window.
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        guard let screen else { return }
         let visible = screen.visibleFrame
         let size = frame.size
         setFrameOrigin(NSPoint(

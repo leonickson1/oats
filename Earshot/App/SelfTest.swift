@@ -97,6 +97,19 @@ enum SelfTest {
             _ = MeetingDetector.selfTestProbe()
             check("call detector HAL probe returns", true)
 
+            // Companion window geometry: docked to the trailing edge, inside
+            // the visible frame, and never below its minimum usable width.
+            let visible = NSRect(x: 0, y: 38, width: 1512, height: 907)
+            let dock = WindowManager.companionFrame(in: visible)
+            check("companion frame docks inside the screen",
+                  visible.contains(dock) &&
+                  abs(dock.maxX - (visible.maxX - 12)) < 0.5 &&
+                  dock.width >= 400 && dock.width <= 480 &&
+                  dock.height > visible.height * 0.9)
+            let tiny = WindowManager.companionFrame(in: NSRect(x: 0, y: 0, width: 1280, height: 720))
+            check("companion frame stays sane on a small screen",
+                  tiny.width >= 400 && tiny.minX >= 0 && tiny.height <= 720)
+
             lines.append("INFO  Apple Intelligence: \(AppleModel.isAvailable ? "available" : (AppleModel.reason ?? "unavailable"))")
 
             let summary = failures == 0 ? "ALL \(lines.count - 1) CHECKS PASSED" : "\(failures) FAILURE(S) of \(lines.count - 1)"

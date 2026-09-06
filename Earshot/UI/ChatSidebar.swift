@@ -623,6 +623,9 @@ struct ChatBody: View {
 struct ModelPickerMenu: View {
     @ObservedObject var agent: AgentBridge
     var tint: Color = .secondary
+    // Compact drops the model name (mark + chevron only) for narrow bars,
+    // like the docked companion window.
+    var compact: Bool = false
 
     var body: some View {
         Menu {
@@ -660,7 +663,9 @@ struct ModelPickerMenu: View {
         } label: {
             HStack(spacing: 4) {
                 ProviderMark(provider: Provider.from(agent.preference), size: 13, color: tint)
-                Text(currentLabel).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                if !compact {
+                    Text(currentLabel).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                }
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).opacity(0.55)
             }
             .foregroundStyle(tint)

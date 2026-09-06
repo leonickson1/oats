@@ -55,6 +55,10 @@ final class HUDBackdrop: ObservableObject {
         Task { @MainActor in
             defer { sampling = false }
             do {
+                // The filter captures one display. If the panel has moved to a
+                // different monitor since it was built, rebuild it there,
+                // otherwise we would keep sampling the old screen.
+                if filter != nil, !displayFrame.intersects(frame) { filter = nil }
                 if filter == nil { try await rebuildFilter(around: frame, excluding: windowID) }
                 guard let filter else {
                     if debug { fputs("backdrop: no filter" + "\n", stderr) }

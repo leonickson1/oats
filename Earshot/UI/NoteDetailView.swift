@@ -648,6 +648,11 @@ struct NoteDetailView: View {
 
     // MARK: - Floating bottom bar
 
+    // Measured so the bar can compress in the docked companion window; below
+    // this width the ask field would otherwise be squeezed out entirely.
+    @State private var barWidth: CGFloat = 728
+    private var barIsNarrow: Bool { barWidth < 600 }
+
     private var bottomBar: some View {
         VStack(spacing: 8) {
             if !displayedSegments.isEmpty && !isAsking {
@@ -681,23 +686,38 @@ struct NoteDetailView: View {
                             .font(.system(size: 14))
                             .lineLimit(1)
                             .onSubmit { ask(askText) }
+                            .frame(minWidth: 70)
+                            .layoutPriority(1)
                         if isAsking {
                             ProgressView().controlSize(.small)
                         } else if isLiveNote {
-                            Button {
-                                ask("What did I miss?")
-                            } label: {
-                                Text("What did I miss?")
-                                    .font(.system(size: 12.5, weight: .medium))
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .padding(.horizontal, 13)
-                                    .padding(.vertical, 7)
-                                    .background(.quaternary.opacity(0.6), in: Capsule())
+                            if barIsNarrow {
+                                Button {
+                                    ask("What did I miss?")
+                                } label: {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .padding(7)
+                                        .background(.quaternary.opacity(0.6), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("What did I miss?")
+                            } else {
+                                Button {
+                                    ask("What did I miss?")
+                                } label: {
+                                    Text("What did I miss?")
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                        .padding(.horizontal, 13)
+                                        .padding(.vertical, 7)
+                                        .background(.quaternary.opacity(0.6), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
-                        ModelPickerMenu(agent: agent)
+                        ModelPickerMenu(agent: agent, compact: barIsNarrow)
                     }
                     .padding(.leading, 18)
                     .padding(.trailing, 12)
@@ -714,6 +734,11 @@ struct NoteDetailView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .padding(.top, 6)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            barWidth = width
+        }
     }
 
     private func barButton(icon: String, label: String?, help: String, action: @escaping () -> Void) -> some View {

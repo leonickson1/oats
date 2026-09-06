@@ -16,6 +16,31 @@ struct MainWindowView: View {
         } detail: {
             detailPane
         }
+        .toolbar {
+            // Grows the docked companion column back into the full app, and
+            // shrinks the full app to the side of the screen for a call.
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    WindowManager.shared.toggleCompanion(app: app)
+                } label: {
+                    Label(
+                        app.companionMode ? "Expand" : "Shrink to the side",
+                        systemImage: app.companionMode
+                            ? "arrow.up.left.and.arrow.down.right"
+                            : "arrow.down.right.and.arrow.up.left"
+                    )
+                }
+                .help(app.companionMode ? "Expand to the full window" : "Dock a small window to the side")
+            }
+        }
+        .onAppear {
+            columnVisibility = app.companionMode ? .detailOnly : .all
+        }
+        .onChange(of: app.companionMode) {
+            withAnimation {
+                columnVisibility = app.companionMode ? .detailOnly : .all
+            }
+        }
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
         }

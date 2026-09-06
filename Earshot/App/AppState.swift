@@ -34,6 +34,10 @@ final class AppState: ObservableObject {
     @Published var showOnboarding = false
     // The persistent sidebar's current target.
     @Published var sidebar: SidebarSelection = .home
+    // Companion shape: a narrow column docked to the side of the screen with
+    // the sidebar hidden, for keeping notes next to a call. WindowManager owns
+    // the frames; this flag is what the views read.
+    @Published var companionMode = false
 
     @Published var hudVisible: Bool {
         didSet {
@@ -83,7 +87,9 @@ final class AppState: ObservableObject {
             if self.recorder.isActive {
                 self.showCurrentNoteWindow()
             } else {
-                self.startMeetingNote()
+                // The hotkey fires while you are elsewhere (in the call), so it
+                // opens the companion column rather than the full window.
+                self.startMeetingNote(companion: true)
             }
         }
         HotkeyManager.shared.onAsk = { [weak self] in
@@ -105,9 +111,38 @@ final class AppState: ObservableObject {
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in AppState.shared.refreshHUD() }
         }
+        // Displays plugged, unplugged, or rearranged: put the lozenge back on a
+        // screen that still exists.
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in AppState.shared.refreshHUD() }
+        }
 
         if !UserDefaults.standard.bool(forKey: "didOnboard") {
             showOnboarding = true
+        }
+        // QA hook: EARSHOT_QA_COMPANION=1 runs the exact HUD start path (real
+        // recording, companion window) so the docked layout can be screenshotted.
+        // "1" starts a companion recording and logs the frame; "2" additionally
+        // toggles back to the full window to prove the restore path.
+        if let qa = ProcessInfo.processInfo.environment["EARSHOT_QA_COMPANION"], qa == "1" || qa == "2" {
+            Task { @MainActor in
+                func frames() -> String {
+                    NSApp.windows
+                        .filter { $0.styleMask.contains(.titled) }
+                        .map { "frame=\($0.frame) screenVisible=\(String(describing: $0.screen?.visibleFrame))" }
+                        .joined(separator: "\n")
+                }
+                try? await Task.sleep(for: .seconds(1))
+                self.startMeetingNote(companion: true)
+                try? await Task.sleep(for: .seconds(4))
+                var log = "companion: " + frames()
+                if qa == "2" {
+                    WindowManager.shared.toggleCompanion(app: self)
+                    try? await Task.sleep(for: .seconds(2))
+                    log += "\nexpanded: " + frames()
+                }
+                try? log.write(toFile: "/tmp/earshot-companion.txt", atomically: true, encoding: .utf8)
+            }
         }
         showMainWindow()
         UpdateChecker.shared.checkOnLaunchIfDue()
@@ -138,7 +173,9 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
-    func startMeetingNote(title: String? = nil) {
+    // companion: true opens the window as the docked side column (HUD and
+    // hotkey starts); false leaves the window in whatever shape it already has.
+    func startMeetingNote(title: String? = nil, companion: Bool = false) {
         guard !recorder.isActive else { return }
         Task {
             if let id = await recorder.start() {
@@ -147,10 +184,14 @@ final class AppState: ObservableObject {
                     meta.titleLocked = true
                     store.save(meta: meta)
                 }
+                // Always land on the live note screen, whatever the sidebar was
+                // showing before; without this, starting from the HUD left the
+                // window sitting on the last-selected space or chat.
+                sidebar = .home
                 notePath = [id]
-                showMainWindow()
+                showMainWindow(companion: companion ? true : nil)
             } else {
-                showMainWindow()
+                showMainWindow(companion: companion ? true : nil)
             }
             refreshHUD()
         }
@@ -167,19 +208,21 @@ final class AppState: ObservableObject {
         guard !recorder.isActive else { return }
         Task {
             _ = await recorder.resumeNote(id: id)
+            sidebar = .home
             notePath = [id]
             showMainWindow()
             refreshHUD()
         }
     }
 
-    func showMainWindow() {
-        WindowManager.shared.showMain(app: self)
+    func showMainWindow(companion: Bool? = nil) {
+        WindowManager.shared.showMain(app: self, companion: companion)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func showCurrentNoteWindow() {
         if let id = recorder.currentNoteID {
+            sidebar = .home
             notePath = [id]
         }
         showMainWindow()

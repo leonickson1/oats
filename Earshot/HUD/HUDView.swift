@@ -85,7 +85,7 @@ struct HUDView: View {
     private var idleExpanded: some View {
         HStack(spacing: 8) {
             Button {
-                app.startMeetingNote()
+                app.startMeetingNote(companion: true)
             } label: {
                 HStack(spacing: 7) {
                     RecordGlyph(color: Theme.record, size: 13)
@@ -143,7 +143,7 @@ struct HUDView: View {
 
             Button {
                 meetings.dismiss()
-                app.startMeetingNote()
+                app.startMeetingNote(companion: true)
             } label: {
                 HStack(spacing: 7) {
                     RecordGlyph(color: Theme.record, size: 13)
