@@ -7,7 +7,7 @@ struct PermissionsChecklist: View {
     @EnvironmentObject var calendar: CalendarManager
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             row(icon: "mic.fill", name: "Microphone",
                 detail: "Hears your side of the meeting.",
                 access: perms.mic, essential: true,
@@ -42,12 +42,12 @@ struct PermissionsChecklist: View {
     private func row(icon: String, name: String, detail: String,
                      access: Permissions.Access, essential: Bool,
                      grant: @escaping () -> Void, anchor: String, busy: Bool = false) -> some View {
-        HStack(spacing: 13) {
+        HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Theme.record)
                 .frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(name).font(.system(size: 13.5, weight: .semibold))
                     if !essential {
@@ -56,15 +56,18 @@ struct PermissionsChecklist: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+                // One line, always: wrapped detail text made the rows read as
+                // a congested wall.
                 Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Spacer(minLength: 12)
             trailing(access: access, busy: busy, grant: grant, anchor: anchor)
         }
         .multilineTextAlignment(.leading)
-        .padding(.vertical, 9)
-        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
     }
@@ -134,7 +137,7 @@ struct PermissionsBanner: View {
             }
             PermissionsChecklist(perms: perms)
         }
-        .padding(16)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card(radius: 16)
     }

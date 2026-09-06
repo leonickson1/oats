@@ -10,42 +10,63 @@ struct MainWindowView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            ChatSidebar()
-                .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 320)
-        } detail: {
-            detailPane
-        }
-        .toolbar {
-            // Grows the docked companion column back into the full app, and
-            // shrinks the full app to the side of the screen for a call.
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    WindowManager.shared.toggleCompanion(app: app)
-                } label: {
-                    Label(
-                        app.companionMode ? "Expand" : "Shrink to the side",
-                        systemImage: app.companionMode
-                            ? "arrow.up.left.and.arrow.down.right"
-                            : "arrow.down.right.and.arrow.up.left"
-                    )
+        Group {
+            // The companion column is NOT a split view with a collapsed
+            // sidebar: the split view keeps live gesture machinery (edge
+            // strips, swipe-to-reveal) that captures real trackpad scroll
+            // sequences at this width, leaving every screen unscrollable.
+            // Docked, the detail pane stands alone; the split view only
+            // exists in the full window.
+            if app.companionMode {
+                detailPane
+                    .toolbar { companionToggle }
+            } else {
+                // The toolbar must sit directly on the split view; attached to
+                // the surrounding Group, non-NavigationStack screens (graph,
+                // actions) lose their entire toolbar.
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    ChatSidebar()
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 320)
+                } detail: {
+                    detailPane
                 }
-                .help(app.companionMode ? "Expand to the full window" : "Dock a small window to the side")
+                .toolbar { companionToggle }
             }
         }
-        .onAppear {
-            columnVisibility = app.companionMode ? .detailOnly : .all
-        }
-        .onChange(of: app.companionMode) {
-            withAnimation {
-                columnVisibility = app.companionMode ? .detailOnly : .all
-            }
-        }
+        // Scrollbars show on every scrollable screen (Home, notes, action
+        // items, chats); this propagates to all of them through the environment.
+        .scrollIndicators(.visible)
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
         }
         .sheet(isPresented: $updates.showSheet) {
             UpdateSheet(checker: updates)
+        }
+    }
+
+    // Grows the docked companion column back into the full app, and shrinks
+    // the full app to the side of the screen for a call. The knowledge graph
+    // is a full-canvas screen, so the shrink offer fades out there (the item
+    // itself must stay: a conditional or empty ToolbarItem tears down the
+    // whole toolbar, taking every other screen's items with it). Expand still
+    // shows if you arrive at the graph docked.
+    private var companionToggle: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            let hidden = !app.companionMode && app.sidebar == .graph
+            Button {
+                WindowManager.shared.toggleCompanion(app: app)
+            } label: {
+                Label(
+                    app.companionMode ? "Expand" : "Shrink to the side",
+                    systemImage: app.companionMode
+                        ? "arrow.up.left.and.arrow.down.right"
+                        : "arrow.down.right.and.arrow.up.left"
+                )
+            }
+            .help(app.companionMode ? "Expand to the full window" : "Dock a small window to the side")
+            .opacity(hidden ? 0 : 1)
+            .disabled(hidden)
+            .accessibilityHidden(hidden)
         }
     }
 

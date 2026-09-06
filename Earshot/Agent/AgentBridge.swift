@@ -434,13 +434,15 @@ enum AgentPrompts {
         return block
     }
 
-    static func title(segments: [TranscriptSegment]) -> String {
+    static func title(segments: [TranscriptSegment], summary: String = "") -> String {
         let lines = segments.suffix(60).filter { $0.channel != "system" }
             .map { "\($0.channel == "me" ? "Me" : "Them"): \($0.text)" }
+        var source = lines.joined(separator: "\n")
+        if !summary.isEmpty { source += "\n\nSUMMARY:\n\(summary)" }
         return """
-        Based on this meeting transcript so far, reply with ONLY a specific 3 to 6 word title for the meeting. No quotes, no punctuation at the end, no explanation. If there is not enough content yet, reply with exactly: New note
+        Based on this meeting transcript so far, reply with ONLY a specific 3 to 6 word title for the meeting. Use only names and topics that actually appear in it. No quotes, no punctuation at the end, no explanation, no markdown. If there is not enough content yet, reply with exactly: New note
 
-        \(lines.joined(separator: "\n"))
+        \(source)
         """
     }
 
@@ -460,6 +462,12 @@ enum AgentPrompts {
         ## Action items
         Bulleted as "- [owner if known] task". Only real commitments from the transcript.
 
+        Grounding rules, non-negotiable:
+        - Every sentence must be supported by a specific line of the transcript or the user's notes. Do not pad, generalize, or invent anything.
+        - Never write placeholders like [Owner], [Team Member] or [Name]. Use real names from the transcript, or leave the owner off.
+        - If a section has nothing real to say, omit that section entirely.
+        - If the whole meeting was too short or trivial to summarize, output only the Overview section: one sentence saying what little was actually said.
+
         \(styleRules)
 
         \(transcriptBlock(segments: segments, thoughts: thoughts, captures: captures, assetsDir: assetsDir))
@@ -467,16 +475,17 @@ enum AgentPrompts {
     }
 
     // Pull out concrete to-dos as strict JSON so we can track and check them off.
-    static func actionItems(summary: String, segments: [TranscriptSegment]) -> String {
-        let source = summary.isEmpty
-            ? transcriptBlock(segments: segments, thoughts: "")
-            : "SUMMARY:\n\(summary)"
+    // The transcript and the user's typed thoughts are always the ground truth;
+    // the summary rides along as a hint, never as the only source.
+    static func actionItems(summary: String, segments: [TranscriptSegment], thoughts: String = "") -> String {
+        var source = transcriptBlock(segments: segments, thoughts: thoughts)
+        if !summary.isEmpty { source += "\n\nSUMMARY ALREADY WRITTEN FOR THIS MEETING:\n\(summary)" }
         return """
-        Extract the concrete action items and commitments from this meeting. Only real tasks someone agreed to do, not general discussion.
+        Extract the concrete action items and commitments from this meeting. Only real tasks someone in the meeting actually agreed to do, or tasks the user wrote in their own notes. Not general discussion, and nothing inferred or invented.
 
         Respond with ONLY a JSON array, no prose, no code fences. Each element:
         {"text": "the task, imperative and specific", "owner": "person responsible or null if unknown"}
-        If there are no real action items, respond with exactly: []
+        Rules: the owner must be a real name that appears in the meeting, otherwise null. Never invent placeholder names. If there are no real action items, respond with exactly: []
 
         \(source)
         """

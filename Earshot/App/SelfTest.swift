@@ -91,6 +91,17 @@ enum SelfTest {
             let spreadH = (ys.max() ?? 0) - (ys.min() ?? 0)
             check("layout fills the canvas", spreadW > dSize.width * 0.5 || spreadH > dSize.height * 0.5)
 
+            // Seconds-long recordings must never grow an invented summary:
+            // below the word floor the summary is deterministic and verbatim.
+            let tinySegs = [TranscriptSegment(t: 4, channel: "me", text: "All right.")]
+            check("tiny transcript is under the summary floor",
+                  MeetingRecorder.spokenWordCount(tinySegs) < MeetingRecorder.summaryWordFloor)
+            let tinyOut = MeetingRecorder.tinySummary(segments: tinySegs, thoughts: "")
+            check("tiny summary is verbatim with no invented sections",
+                  tinyOut.contains("All right.") && !tinyOut.contains("Decisions") && !tinyOut.contains("Action items"))
+            check("tiny title comes from the first words",
+                  MeetingRecorder.tinyTitle(segments: tinySegs) == "All right")
+
             // Emoji vs SF Symbol detection for space icons.
             check("emoji detection", SpaceGlyph.isEmoji("📚") && !SpaceGlyph.isEmoji("folder") && !SpaceGlyph.isEmoji(""))
 

@@ -256,7 +256,9 @@ final class MeetingRecorder: ObservableObject {
             // the better transcript.
             await maybePostTranscribe(noteID: id)
             if autoSummary {
-                await generateSummary(noteID: id)
+                await generateSummary(noteID: id)   // also finalizes the title
+            } else {
+                await finalizeTitle(noteID: id)
             }
         } else {
             state = .idle
@@ -441,12 +443,71 @@ final class MeetingRecorder: ObservableObject {
 
     // MARK: - Summary
 
+    // Below this many spoken words there is no meeting to summarize, and small
+    // local models handed the full template just invent one (generic sections,
+    // placeholder owners). Tiny recordings get a deterministic write-up instead.
+    static let summaryWordFloor = 40
+
+    static func spokenWordCount(_ segments: [TranscriptSegment]) -> Int {
+        segments.reduce(0) { $0 + $1.text.split(whereSeparator: { $0.isWhitespace }).count }
+    }
+
+    private static func speakerLabel(_ channel: String) -> String {
+        switch channel {
+        case "me": return "Me"
+        case "them": return "Them"
+        default: return "Both"
+        }
+    }
+
+    static func tinySummary(segments: [TranscriptSegment], thoughts: String) -> String {
+        var lines = [
+            "## Overview",
+            "This recording was too short for a real summary. Here is everything that was said."
+        ]
+        lines.append("")
+        lines.append("## What was said")
+        for segment in segments {
+            lines.append("- [\(segment.t.clockString)] \(speakerLabel(segment.channel)): \(segment.text)")
+        }
+        let typed = thoughts.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty {
+            lines.append("")
+            lines.append("## Your notes")
+            lines.append(typed)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // A factual label from the first spoken words, for recordings too short to
+    // deserve a model call (Voice Memos style).
+    static func tinyTitle(segments: [TranscriptSegment]) -> String? {
+        let words = segments.map(\.text).joined(separator: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+        guard !words.isEmpty else { return nil }
+        let title = words.prefix(5).joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " .,!?"))
+        return title.isEmpty ? nil : title
+    }
+
     func generateSummary(noteID: UUID) async {
         let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
         guard !segments.isEmpty else { return }
         isSummarizing = true
         defer { isSummarizing = false }
         let thoughts = store.loadThoughts(noteID: noteID)
+
+        if Self.spokenWordCount(segments) < Self.summaryWordFloor {
+            store.saveSummary(noteID: noteID, Self.tinySummary(segments: segments, thoughts: thoughts))
+            if var meta = store.meta(id: noteID), meta.titleLocked != true, meta.isUntitled,
+               let title = Self.tinyTitle(segments: segments) {
+                meta.title = title
+                store.save(meta: meta)
+            }
+            store.saveActions(noteID: noteID, [])
+            return
+        }
+
         let captures = store.loadAttachments(noteID: noteID)
         let prompt = AgentPrompts.summary(segments: segments, thoughts: thoughts, captures: captures, assetsDir: store.assetsDir(for: noteID))
         guard let output = try? await agent.run(prompt: prompt) else { return }
@@ -464,6 +525,9 @@ final class MeetingRecorder: ObservableObject {
             }
         }
         store.saveSummary(noteID: noteID, summary)
+        // The summary prompt asks for a TITLE line, but small models often
+        // ignore the format; a dedicated title call catches what it missed.
+        await finalizeTitle(noteID: noteID)
         // Action items and the knowledge graph fill in afterwards so the summary
         // shows immediately; each write bumps the store so the UI updates live.
         Task { [weak self] in
@@ -472,14 +536,46 @@ final class MeetingRecorder: ObservableObject {
         }
     }
 
+    // Make sure a finished meeting never stays "New note": if the live titling
+    // and the summary's TITLE line both failed, run one dedicated title call.
+    // Never touches a title the user typed themselves.
+    func finalizeTitle(noteID: UUID) async {
+        guard autoTitle, let meta = store.meta(id: noteID), meta.titleLocked != true, meta.isUntitled else { return }
+        let spoken = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
+        guard !spoken.isEmpty else { return }
+        let summary = store.loadSummary(noteID: noteID)
+        var title = ""
+        if let raw = try? await agent.run(prompt: AgentPrompts.title(segments: spoken, summary: summary)) {
+            title = raw.split(separator: "\n")
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"'.#*")) }
+                .first { !$0.isEmpty } ?? ""
+        }
+        if title.isEmpty || title.lowercased() == "new note" || title.count > 80 {
+            title = Self.tinyTitle(segments: spoken) ?? ""
+        }
+        guard !title.isEmpty else { return }
+        if var fresh = store.meta(id: noteID), fresh.titleLocked != true, fresh.isUntitled {
+            fresh.title = title
+            store.save(meta: fresh)
+        }
+    }
+
     // Pull concrete to-dos out of a meeting and save them for the action hub.
+    // Sources: the transcript, the user's own typed thoughts, and the summary.
     func extractActions(noteID: UUID) async {
         let summary = store.loadSummary(noteID: noteID)
         let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
         guard !summary.isEmpty || !segments.isEmpty else { return }
+        // A few words of audio has no commitments; asking anyway just invites
+        // invented ones.
+        guard Self.spokenWordCount(segments) >= Self.summaryWordFloor else {
+            store.saveActions(noteID: noteID, [])
+            return
+        }
         enrichActionsCount += 1; refreshEnrichmentLabel()
         defer { enrichActionsCount -= 1; refreshEnrichmentLabel() }
-        let prompt = AgentPrompts.actionItems(summary: summary, segments: segments)
+        let thoughts = store.loadThoughts(noteID: noteID)
+        let prompt = AgentPrompts.actionItems(summary: summary, segments: segments, thoughts: thoughts)
         guard let output = try? await agent.run(prompt: prompt) else { return }
         store.saveActions(noteID: noteID, ActionParsing.parse(output))
     }
@@ -489,6 +585,12 @@ final class MeetingRecorder: ObservableObject {
         let summary = store.loadSummary(noteID: noteID)
         let segments = store.loadSegments(noteID: noteID).filter { $0.channel != "system" }
         guard !summary.isEmpty || !segments.isEmpty else { return }
+        // Same floor as the summary: seconds-long notes have no real entities,
+        // and they were cluttering the graph as fake "New note" clusters.
+        guard Self.spokenWordCount(segments) >= Self.summaryWordFloor else {
+            store.saveGraph(noteID: noteID, .empty)
+            return
+        }
         enrichGraphCount += 1; refreshEnrichmentLabel()
         defer { enrichGraphCount -= 1; refreshEnrichmentLabel() }
         let prompt = AgentPrompts.entities(summary: summary, segments: segments)

@@ -12,11 +12,19 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     private var mainWindow: NSWindow?
     private var savedFullFrame: NSRect?   // where the full window was before docking
+    // In the full window, NavigationSplitView brings its own NSToolbar. The
+    // companion has no split view (its gesture machinery ate trackpad scrolls),
+    // so there the hosting view must bridge SwiftUI's .toolbar itself or the
+    // Expand button would vanish. Toggled alongside the window shape.
+    private var setToolbarBridging: ((Bool) -> Void)?
 
     private static let fullMinSize = NSSize(width: 880, height: 560)
     private static let companionMinSize = NSSize(width: 400, height: 520)
 
     var isMainVisible: Bool { mainWindow?.isVisible ?? false }
+
+    // For QA hooks only: lets the scroll diagnostic walk the AppKit hierarchy.
+    var debugContentView: NSView? { mainWindow?.contentView }
 
     func showMain(app: AppState, companion: Bool? = nil) {
         if mainWindow == nil { buildWindow(app: app) }
@@ -37,6 +45,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         if companion {
             if !app.companionMode { savedFullFrame = window.frame }
             app.companionMode = true
+            setToolbarBridging?(true)
             window.minSize = Self.companionMinSize
             let visible = Self.screenUnderMouse().visibleFrame
             // Never animated: an animated shrink negotiates with the still-
@@ -46,6 +55,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             settleCompanionFrame()
         } else {
             app.companionMode = false
+            setToolbarBridging?(false)
             window.minSize = Self.fullMinSize
             window.setFrame(restoredFullFrame(), display: true, animate: animate)
         }
@@ -136,6 +146,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
         // hosting view's own minimum (sidebar + detail) clamps the companion
         // frame the instant it is set, before the sidebar has collapsed.
         hosting.sizingOptions = []
+        setToolbarBridging = { on in
+            hosting.sceneBridgingOptions = on ? [.toolbars] : []
+        }
+        setToolbarBridging?(app.companionMode)
         window.contentView = hosting
         // A window reopened mid-call keeps the shape it had when it closed.
         if app.companionMode {

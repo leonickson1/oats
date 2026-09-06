@@ -144,6 +144,90 @@ final class AppState: ObservableObject {
                 try? log.write(toFile: "/tmp/earshot-companion.txt", atomically: true, encoding: .utf8)
             }
         }
+        // QA hook: EARSHOT_QA_SCROLL=1 docks the window as the companion on
+        // Home, dumps every NSScrollView (document vs clip height) to
+        // /tmp/earshot-scroll.txt, then scrolls the main one programmatically
+        // so a screenshot can prove whether scrolling works at that size.
+        if ProcessInfo.processInfo.environment["EARSHOT_QA_SCROLL"] == "1" {
+            // Log every scroll-wheel event the app receives, so an externally
+            // posted scroll can be traced: arrived-but-ignored vs never-arrived.
+            _ = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                let line = "scroll dy=\(event.scrollingDeltaY) phase=\(event.phase.rawValue) momentum=\(event.momentumPhase.rawValue) loc=\(event.locationInWindow) win=\(event.window == nil ? "nil" : "yes")\n"
+                if let data = line.data(using: .utf8) {
+                    if let handle = FileHandle(forWritingAtPath: "/tmp/earshot-scrollevents.txt") {
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                        try? handle.close()
+                    } else {
+                        try? data.write(to: URL(fileURLWithPath: "/tmp/earshot-scrollevents.txt"))
+                    }
+                }
+                return event
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                self.sidebar = .home
+                WindowManager.shared.showMain(app: self, companion: true)
+                try? await Task.sleep(for: .seconds(3))
+                var log = ""
+                var scrollViews: [NSScrollView] = []
+                func walk(_ view: NSView, depth: Int) {
+                    let name = String(describing: type(of: view))
+                    if let sv = view as? NSScrollView {
+                        scrollViews.append(sv)
+                        log += String(repeating: "  ", count: depth)
+                            + "\(name) frame=\(view.frame) doc=\(sv.documentView?.frame.size ?? .zero) clip=\(sv.contentView.bounds) elasticity=\(sv.verticalScrollElasticity.rawValue)\n"
+                    } else if depth < 6 {
+                        log += String(repeating: "  ", count: depth)
+                            + "\(name) frame=\(view.frame) hidden=\(view.isHidden) alpha=\(view.alphaValue)\n"
+                    }
+                    for sub in view.subviews { walk(sub, depth: depth + 1) }
+                }
+                if let content = WindowManager.shared.debugContentView { walk(content, depth: 0) }
+                // Where would events land? Probe mid-window and log the full
+                // superview chain of the hit view, so we can see whether it
+                // lives inside the scroll view or floats above it.
+                if let content = WindowManager.shared.debugContentView,
+                   let hit = content.hitTest(NSPoint(x: 206, y: 450)) {
+                    var chain: [String] = []
+                    var cursor: NSView? = hit
+                    while let v = cursor {
+                        chain.append(String(describing: type(of: v)))
+                        cursor = v.superview
+                    }
+                    log += "hit chain: " + chain.joined(separator: " < ") + "\n"
+                    // Does the hit view forward scrollWheel up the responder
+                    // chain? Feed it a real event directly.
+                    if let main = scrollViews.max(by: { $0.frame.height < $1.frame.height }),
+                       let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -240, wheel2: 0, wheel3: 0),
+                       let event = NSEvent(cgEvent: cg) {
+                        log += "direct before: \(main.contentView.bounds.origin)\n"
+                        hit.scrollWheel(with: event)
+                        try? await Task.sleep(for: .milliseconds(400))
+                        log += "direct after: \(main.contentView.bounds.origin)\n"
+                    }
+                }
+                // Send a real scroll-wheel event through the window's normal
+                // routing (no permissions needed) and see if the content moves.
+                if let window = WindowManager.shared.debugContentView?.window,
+                   let main = scrollViews.max(by: { $0.frame.height < $1.frame.height }) {
+                    log += "before event: \(main.contentView.bounds.origin)\n"
+                    let winMid = NSPoint(x: window.frame.width / 2, y: window.frame.height / 2)
+                    if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -240, wheel2: 0, wheel3: 0) {
+                        let screenPoint = NSPoint(x: window.frame.midX, y: window.frame.midY)
+                        let mainScreenHeight = NSScreen.screens.first?.frame.height ?? 0
+                        cg.location = CGPoint(x: screenPoint.x, y: mainScreenHeight - screenPoint.y)
+                        if let event = NSEvent(cgEvent: cg) {
+                            window.sendEvent(event)
+                        }
+                        log += "sent scroll at winMid=\(winMid)\n"
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                    log += "after event: \(main.contentView.bounds.origin)\n"
+                }
+                try? log.write(toFile: "/tmp/earshot-scroll.txt", atomically: true, encoding: .utf8)
+            }
+        }
         // QA hook: EARSHOT_QA_GRAPH=1 opens the knowledge graph on launch so
         // the canvas layout can be screenshotted.
         if ProcessInfo.processInfo.environment["EARSHOT_QA_GRAPH"] == "1" {
