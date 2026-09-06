@@ -39,7 +39,7 @@ Oats sits quietly in the corner of your screen. Press record, have your meeting,
 
 **A companion column** docks beside your call and transcribes live.
 
-And even more: ask anything across all your meetings, summaries the moment you stop, screen captures straight into your notes.
+<mark>&nbsp;And even more: ask anything across all your meetings, summaries the moment you stop, screen captures straight into your notes.&nbsp;</mark>
 
 </div>
 

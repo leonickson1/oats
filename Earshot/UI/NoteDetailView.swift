@@ -42,6 +42,7 @@ struct NoteDetailView: View {
     @State private var showImagePicker = false
     @State private var saveDebounce: Task<Void, Never>?
     @State private var textOffer: CaptureTextOffer?
+    @State private var confirmDelete = false
     @StateObject private var player = AudioPlaybackController()
 
     private var isLiveNote: Bool { recorder.isActive && recorder.currentNoteID == noteID }
@@ -146,13 +147,21 @@ struct NoteDetailView: View {
                     }
                     Divider()
                     Button("Delete note", role: .destructive) {
-                        app.notePath = []
-                        store.deleteNote(id: noteID)
+                        confirmDelete = true
                     }
                 } label: {
                     Label("More", systemImage: "ellipsis")
                 }
             }
+        }
+        .alert("Delete this note?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
+                app.notePath = []
+                store.deleteNote(id: noteID)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The recording, transcript and summary go with it. This cannot be undone.")
         }
         .alert("Add link", isPresented: $showLinkPrompt) {
             TextField("https://", text: $linkText)

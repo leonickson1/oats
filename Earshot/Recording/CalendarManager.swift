@@ -64,8 +64,10 @@ final class CalendarManager: ObservableObject {
         let now = Date()
         guard let end = Calendar.current.date(byAdding: .hour, value: 18, to: now) else { return }
         let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-15 * 60), end: end, calendars: nil)
+        // Only meetings that are still happening or ahead: an event that ended
+        // hours ago lingering with a Record button reads as a ghost.
         let events = store.events(matching: predicate)
-            .filter { !$0.isAllDay }
+            .filter { !$0.isAllDay && $0.endDate > now }
             .sorted { $0.startDate < $1.startDate }
         upcoming = Array(events.prefix(4))
     }

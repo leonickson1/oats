@@ -52,21 +52,24 @@ struct MainWindowView: View {
     // shows if you arrive at the graph docked.
     private var companionToggle: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            let hidden = !app.companionMode && app.sidebar == .graph
-            Button {
-                WindowManager.shared.toggleCompanion(app: app)
-            } label: {
-                Label(
-                    app.companionMode ? "Expand" : "Shrink to the side",
-                    systemImage: app.companionMode
-                        ? "arrow.up.left.and.arrow.down.right"
-                        : "arrow.down.right.and.arrow.up.left"
-                )
+            if !app.companionMode && app.sidebar == .graph {
+                // Real-but-invisible content, never an empty item: emptiness
+                // tears the whole toolbar down, and an opacity-zero Button
+                // still leaves its glass bezel as a ghost circle.
+                Color.clear.frame(width: 1, height: 1)
+            } else {
+                Button {
+                    WindowManager.shared.toggleCompanion(app: app)
+                } label: {
+                    Label(
+                        app.companionMode ? "Expand" : "Shrink to the side",
+                        systemImage: app.companionMode
+                            ? "arrow.up.left.and.arrow.down.right"
+                            : "arrow.down.right.and.arrow.up.left"
+                    )
+                }
+                .help(app.companionMode ? "Expand to the full window" : "Dock a small window to the side")
             }
-            .help(app.companionMode ? "Expand to the full window" : "Dock a small window to the side")
-            .opacity(hidden ? 0 : 1)
-            .disabled(hidden)
-            .accessibilityHidden(hidden)
         }
     }
 
@@ -110,6 +113,7 @@ struct HomeView: View {
     @State private var askAnswer: String?
     @State private var askError: String?
     @State private var isAsking = false
+    @State private var noteToDelete: NoteMeta?
     @StateObject private var perms = Permissions()
     // Optional permissions can be waved away once the essentials are granted;
     // an essential going missing brings the banner back regardless.
@@ -177,6 +181,21 @@ struct HomeView: View {
         .background(Theme.windowBG)
         .searchable(text: $searchText, prompt: "Search notes")
         .safeAreaInset(edge: .bottom) { askBar }
+        .alert(
+            "Delete \"\(noteToDelete?.title ?? "this note")\"?",
+            isPresented: Binding(
+                get: { noteToDelete != nil },
+                set: { if !$0 { noteToDelete = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                if let note = noteToDelete { store.deleteNote(id: note.id) }
+                noteToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { noteToDelete = nil }
+        } message: {
+            Text("The recording, transcript and summary go with it. This cannot be undone.")
+        }
     }
 
     // MARK: - Live recording card
@@ -261,7 +280,7 @@ struct HomeView: View {
             }
             Divider()
             Button("Delete note", role: .destructive) {
-                store.deleteNote(id: meta.id)
+                noteToDelete = meta
             }
         }
     }
@@ -378,7 +397,9 @@ struct HomeView: View {
                     .glassEffect(.regular, in: .capsule)
 
                     Button {
-                        runAsk("List the open action items from my recent meetings, grouped by meeting.")
+                        // Opens the hub. It never re-extracts or duplicates:
+                        // items are written once per meeting, this just shows them.
+                        app.sidebar = .actions
                     } label: {
                         Label("Action items", systemImage: "checklist")
                             .font(.system(size: 13, weight: .medium))
@@ -387,9 +408,8 @@ struct HomeView: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
-                    .disabled(isAsking)
                     .fixedSize()
-                    .help("Pull open action items from your recent notes")
+                    .help("See every action item from your meetings")
                 }
             }
             .frame(maxWidth: 720)
@@ -570,11 +590,11 @@ struct ComingUpCard: View {
                             Circle()
                                 .fill(Color(nsColor: event.calendar?.color ?? .systemGray))
                                 .frame(width: 7, height: 7)
-                            Text(event.startDate.formatted(date: .omitted, time: .shortened))
+                            Text(timeLabel(event.startDate))
                                 .font(.system(size: 12, weight: .medium))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
-                                .frame(width: 66, alignment: .leading)
+                                .frame(minWidth: 66, alignment: .leading)
                             Text(event.title ?? "Untitled event")
                                 .font(.system(size: 13, weight: .medium))
                                 .lineLimit(1)
@@ -597,6 +617,16 @@ struct ComingUpCard: View {
             }
         }
         .card(radius: 16)
+    }
+
+    // "Now" while the meeting is happening, a plain time today, and an explicit
+    // day for anything further out, so a row never looks like a stale ghost.
+    private func timeLabel(_ start: Date) -> String {
+        if start <= Date() { return "Now" }
+        let time = start.formatted(date: .omitted, time: .shortened)
+        if Calendar.current.isDateInToday(start) { return time }
+        if Calendar.current.isDateInTomorrow(start) { return "Tomorrow " + time }
+        return start.formatted(.dateTime.weekday(.abbreviated)) + " " + time
     }
 }
 

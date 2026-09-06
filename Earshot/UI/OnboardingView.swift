@@ -127,6 +127,11 @@ struct OnboardingView: View {
             }
             .frame(maxWidth: 440)
             .padding(.top, 6)
+            Toggle("Update action items and the knowledge graph automatically after each meeting", isOn: autoEnrichBinding)
+                .toggleStyle(.switch)
+                .font(.system(size: 12.5))
+                .frame(maxWidth: 440)
+                .padding(.top, 2)
         }
     }
 
@@ -233,6 +238,10 @@ struct OnboardingView: View {
     private var autoTitleBinding: Binding<Bool> {
         Binding(get: { UserDefaults.standard.object(forKey: "autoTitle") as? Bool ?? true },
                 set: { UserDefaults.standard.set($0, forKey: "autoTitle") })
+    }
+    private var autoEnrichBinding: Binding<Bool> {
+        Binding(get: { UserDefaults.standard.object(forKey: "autoEnrich") as? Bool ?? true },
+                set: { UserDefaults.standard.set($0, forKey: "autoEnrich") })
     }
 }
 

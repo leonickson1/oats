@@ -80,14 +80,18 @@ struct ActionItemsView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { scan() } label: {
+                    // Text always, not just the icon: a lone hourglass or
+                    // sparkle tells nobody what the button does.
                     if scanning {
                         Label(scanProgress, systemImage: "hourglass")
                     } else {
                         Label("Scan meetings", systemImage: "sparkles")
                     }
                 }
+                .labelStyle(.titleAndIcon)
+                .controlSize(.large)
                 .disabled(scanning || unscanned.isEmpty)
-                .help(unscanned.isEmpty ? "All meetings scanned" : "Find action items in meetings not yet analyzed")
+                .help(unscanned.isEmpty ? "All meetings scanned. New meetings are added automatically." : "Find action items in meetings not yet analyzed")
             }
         }
     }

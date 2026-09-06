@@ -530,11 +530,18 @@ final class MeetingRecorder: ObservableObject {
         await finalizeTitle(noteID: noteID)
         // Action items and the knowledge graph fill in afterwards so the summary
         // shows immediately; each write bumps the store so the UI updates live.
-        Task { [weak self] in
-            await self?.extractActions(noteID: noteID)
-            await self?.extractGraph(noteID: noteID)
+        // Runs with whatever model is selected and whether or not the window is
+        // frontmost; the toggle (onboarding + Settings) can turn it off, and
+        // the manual Scan/Analyze buttons still work either way.
+        if autoEnrich {
+            Task { [weak self] in
+                await self?.extractActions(noteID: noteID)
+                await self?.extractGraph(noteID: noteID)
+            }
         }
     }
+
+    private var autoEnrich: Bool { UserDefaults.standard.object(forKey: "autoEnrich") as? Bool ?? true }
 
     // Make sure a finished meeting never stays "New note": if the live titling
     // and the summary's TITLE line both failed, run one dedicated title call.

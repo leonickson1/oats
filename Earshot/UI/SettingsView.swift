@@ -112,6 +112,7 @@ struct BehaviorCard: View {
     @EnvironmentObject var app: AppState
     @AppStorage("autoSummary") private var autoSummary = true
     @AppStorage("autoTitle") private var autoTitle = true
+    @AppStorage("autoEnrich") private var autoEnrich = true
 
     var body: some View {
         SettingsCard(
@@ -136,6 +137,10 @@ struct BehaviorCard: View {
             Divider().opacity(0.4)
             SettingsRow(title: "Name notes automatically", subtitle: "Titles appear a minute or two in. Your own edits always win.") {
                 Toggle("", isOn: $autoTitle).toggleStyle(.switch).labelsHidden()
+            }
+            Divider().opacity(0.4)
+            SettingsRow(title: "Update action items and knowledge graph", subtitle: "Pull out tasks and update the graph automatically after each meeting. Off, the Scan and Analyze buttons still work by hand.") {
+                Toggle("", isOn: $autoEnrich).toggleStyle(.switch).labelsHidden()
             }
         }
     }
