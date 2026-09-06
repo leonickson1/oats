@@ -118,64 +118,63 @@ struct HUDView: View {
 
     // MARK: - Call detected
 
+    // One card, Granola-style: what happened on the left, a single prominent
+    // action on the right. The button inverts the card's ink so it reads as
+    // the native "do this" pill in both light and dark states.
     private func callOffer(_ call: MeetingDetector.Detection) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 9) {
-                Image(systemName: call.isBrowser ? "video" : "phone.fill")
-                    .font(.system(size: 12, weight: .semibold))
+        HStack(spacing: 12) {
+            Image(systemName: call.isBrowser ? "video.fill" : "phone.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ink)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Call detected")
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(ink)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Call detected")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(ink)
-                    Text(call.appName)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(inkSecondary)
-                }
+                Text(call.appName)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(inkSecondary)
             }
             .fixedSize()
-            .padding(.leading, 13)
-            .padding(.trailing, 11)
-            .frame(height: 34)
-            .contentShape(Capsule())
-            .glassEffect(glass, in: .capsule)
-            .glassEffectID("core", in: glassNS)
 
             Button {
                 meetings.dismiss()
                 app.startMeetingNote(companion: true)
             } label: {
                 HStack(spacing: 7) {
-                    RecordGlyph(color: Theme.record, size: 13)
+                    RecordGlyph(color: Theme.record, size: 12)
                     Text("Take notes")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                 }
                 .fixedSize()
-                .foregroundStyle(ink)
-                .frame(height: 34)
-                .padding(.horizontal, 13)
+                .foregroundStyle(backdrop.overLight ? .white : Color.black.opacity(0.85))
+                .frame(height: 36)
+                .padding(.horizontal, 16)
+                .background(backdrop.overLight ? Color.black.opacity(0.85) : .white, in: Capsule())
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .glassEffect(glassInteractive, in: .capsule)
-            .glassEffectID("record", in: glassNS)
+            .padding(.leading, 6)
             .help("Start a meeting note for this call")
 
             Button {
                 meetings.dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(inkSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 30, height: 30)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(glassInteractive, in: .circle)
-            .glassEffectID("dismiss", in: glassNS)
             .help("Not now")
         }
+        .padding(.leading, 20)
+        .padding(.trailing, 10)
+        .padding(.vertical, 11)
+        .contentShape(Capsule())
+        .glassEffect(glass, in: .capsule)
+        .glassEffectID("core", in: glassNS)
     }
 
     // MARK: - Recording
