@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
-  "notes": "Call detection with a Take notes card on the floating lozenge, an adaptive lozenge that stays legible over white pages, a new rich notes editor with fonts and colors, inline screenshots with one-click text paste, and update checks from this repository.",
-  "url": "https://github.com/leonickson1/oats/releases/download/v0.2.0/Oats.dmg"
+  "version": "0.2.1",
+  "notes": "A companion window for calls: starting notes from the floating lozenge or the hotkey now opens a slim column docked to the side of your screen, sidebar tucked away, with a toolbar button to grow it back into the full app. The lozenge and the companion follow whichever screen you are working on, and the ask bar stays usable at any width.",
+  "url": "https://github.com/leonickson1/oats/releases/download/v0.2.1/Oats.dmg"
 }

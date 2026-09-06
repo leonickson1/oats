@@ -28,8 +28,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.earshot.app
         PRODUCT_NAME: Oats
-        MARKETING_VERSION: 0.2.0
-        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 0.2.1
+        CURRENT_PROJECT_VERSION: 3
         INFOPLIST_FILE: Earshot/Info.plist
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_IDENTITY: "Apple Development"

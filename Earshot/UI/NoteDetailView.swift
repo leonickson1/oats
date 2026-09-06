@@ -660,22 +660,24 @@ struct NoteDetailView: View {
             }
             GlassEffectContainer(spacing: 9) {
                 HStack(alignment: .center, spacing: 9) {
+                    // At companion width the transport buttons go icon-only so
+                    // the ask field keeps room to breathe.
                     if isLiveNote {
                         if recorder.isPaused {
-                            barButton(icon: "record.circle", label: "Resume", help: "Resume recording") {
+                            barButton(icon: "record.circle", label: barIsNarrow ? nil : "Resume", help: "Resume recording") {
                                 recorder.resume()
                             }
                         } else {
                             barButton(icon: "pause.fill", label: nil, help: "Pause") {
                                 recorder.pause()
                             }
-                            barButton(icon: "stop.fill", label: "Stop", help: "Stop and summarize") {
+                            barButton(icon: "stop.fill", label: barIsNarrow ? nil : "Stop", help: "Stop and summarize") {
                                 app.stopMeetingNote()
                             }
                         }
                     } else if !recorder.isActive && !displayedSegments.isEmpty {
                         // A finished note can keep recording again onto the same transcript.
-                        barButton(icon: "record.circle", label: "Resume", help: "Record more into this note") {
+                        barButton(icon: "record.circle", label: barIsNarrow ? nil : "Resume", help: "Record more into this note") {
                             app.resumeMeetingNote(id: noteID)
                         }
                     }
