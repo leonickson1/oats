@@ -17,6 +17,12 @@ struct KnowledgeGraphView: View {
     @State private var canvasSize: CGSize = .zero
     @State private var scanning = false
     @State private var scanProgress = ""
+    // View transform: pinch or the corner buttons zoom, dragging the background
+    // pans. Node positions stay in graph space; only the rendering moves.
+    @State private var zoom: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var panStart: CGSize?
+    @State private var magnifyStart: CGFloat?
 
     private var graph: KnowledgeGraph {
         _ = store.revision
@@ -91,15 +97,22 @@ struct KnowledgeGraphView: View {
                 }
             }
             .coordinateSpace(name: "graph")
+            .scaleEffect(zoom)
+            .offset(pan)
+            .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
             .onTapGesture { selectedID = nil }
+            .gesture(panGesture)
+            .simultaneousGesture(magnifyGesture)
+            .clipped()
             .overlay(alignment: .topTrailing) {
                 if let id = selectedID, let node = g.nodes.first(where: { $0.id == id }) {
                     detailCard(node)
                         .padding(16)
                 }
             }
-            .overlay(alignment: .bottomLeading) { legend.padding(16) }
+            .overlay(alignment: .bottomLeading) { legend(g).padding(16) }
+            .overlay(alignment: .bottomTrailing) { zoomControls.padding(16) }
             .onAppear {
                 canvasSize = geo.size
                 relayout(g, size: geo.size)
@@ -112,6 +125,63 @@ struct KnowledgeGraphView: View {
                 relayout(g, size: geo.size)
             }
         }
+    }
+
+    // MARK: - Zoom and pan
+
+    private var panGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                if panStart == nil { panStart = pan }
+                pan = CGSize(width: (panStart?.width ?? 0) + value.translation.width,
+                             height: (panStart?.height ?? 0) + value.translation.height)
+            }
+            .onEnded { _ in panStart = nil }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                if magnifyStart == nil { magnifyStart = zoom }
+                zoom = clampedZoom((magnifyStart ?? 1) * value.magnification)
+            }
+            .onEnded { _ in magnifyStart = nil }
+    }
+
+    private func clampedZoom(_ value: CGFloat) -> CGFloat {
+        min(3.5, max(0.35, value))
+    }
+
+    private func stepZoom(_ factor: CGFloat) {
+        withAnimation(Motion.quick) { zoom = clampedZoom(zoom * factor) }
+    }
+
+    private var zoomControls: some View {
+        VStack(spacing: 2) {
+            zoomButton("plus", help: "Zoom in") { stepZoom(1.35) }
+            zoomButton("minus", help: "Zoom out") { stepZoom(1 / 1.35) }
+            Divider().frame(width: 16)
+            zoomButton("arrow.counterclockwise", help: "Reset the view") {
+                withAnimation(Motion.standard) {
+                    zoom = 1
+                    pan = .zero
+                }
+            }
+        }
+        .padding(5)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func zoomButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 28, height: 26)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func nodeView(_ node: GraphNode) -> some View {
@@ -175,10 +245,15 @@ struct KnowledgeGraphView: View {
     }
 
     // A working filter, not a decorative key: tap a category to focus the graph
-    // on just those nodes, tap again to clear.
-    private var legend: some View {
-        HStack(spacing: 4) {
-            ForEach(EntityKind.allCases, id: \.self) { kind in
+    // on just those nodes, tap again to clear. Built from the graph itself, so
+    // it only lists kinds that are actually on screen, with live counts.
+    private func legend(_ g: KnowledgeGraph) -> some View {
+        var counts: [EntityKind: Int] = [:]
+        for node in g.nodes {
+            if case .entity(let kind) = node.kind { counts[kind, default: 0] += 1 }
+        }
+        return HStack(spacing: 4) {
+            ForEach(EntityKind.allCases.filter { (counts[$0] ?? 0) > 0 }, id: \.self) { kind in
                 let on = focusKind == kind
                 Button {
                     withAnimation(Motion.quick) {
@@ -190,6 +265,10 @@ struct KnowledgeGraphView: View {
                         Text(pluralKind(kind))
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(on ? .primary : .secondary)
+                        Text("\(counts[kind] ?? 0)")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
@@ -391,6 +470,11 @@ struct KnowledgeGraphView: View {
     private func relayout(_ g: KnowledgeGraph, size: CGSize) {
         guard size.width > 1, size.height > 1, !g.nodes.isEmpty else { return }
         positions = ForceLayout.layout(nodes: g.nodes, edges: g.edges, size: size)
+        // A focused kind that no longer exists would dim everything with no way
+        // to see why; clear it so the graph never looks broken after a change.
+        if let fk = focusKind, !g.nodes.contains(where: { $0.kind == .entity(fk) }) {
+            focusKind = nil
+        }
     }
 
     private func radius(_ node: GraphNode) -> CGFloat {

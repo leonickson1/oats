@@ -103,8 +103,8 @@ final class AppState: ObservableObject {
             try? await TranscriberPipeline.ensureAssets(locale: locale)
         }
 
-        // The floating lozenge is for when you are elsewhere; inside Earshot
-        // the window has its own controls, so the HUD steps aside.
+        // Activation changes reposition the lozenge onto the screen you are
+        // working on and re-sample the backdrop behind it.
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in AppState.shared.refreshHUD() }
         }
@@ -144,6 +144,14 @@ final class AppState: ObservableObject {
                 try? log.write(toFile: "/tmp/earshot-companion.txt", atomically: true, encoding: .utf8)
             }
         }
+        // QA hook: EARSHOT_QA_GRAPH=1 opens the knowledge graph on launch so
+        // the canvas layout can be screenshotted.
+        if ProcessInfo.processInfo.environment["EARSHOT_QA_GRAPH"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                self.sidebar = .graph
+            }
+        }
         showMainWindow()
         UpdateChecker.shared.checkOnLaunchIfDue()
     }
@@ -159,11 +167,12 @@ final class AppState: ObservableObject {
 
     private func updateHUDVisibility() {
         guard let hudPanel else { return }
-        // While recording, the lozenge stays put even when Oats is frontmost, so
-        // opening the meeting from it never makes it vanish. A detected call
-        // also holds it up, since the offer card lives there. When idle, it
-        // steps aside inside the app, where the window has its own controls.
-        if hudVisible && (!NSApp.isActive || recorder.isActive || meetings.current != nil) {
+        // The lozenge is always there while it is enabled. It used to step
+        // aside when Oats was frontmost, but that made it vanish under the
+        // cursor the moment you pressed Stop with the window open, and then
+        // reappear when you clicked elsewhere, which read as a bug. A steady
+        // pill people can always find beats a clever one.
+        if hudVisible {
             hudPanel.positionBottomCenter()
             hudPanel.orderFrontRegardless()
             // Adapt to what is behind it the moment it appears, not on the

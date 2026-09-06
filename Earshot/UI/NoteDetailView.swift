@@ -24,7 +24,10 @@ struct NoteDetailView: View {
     @EnvironmentObject var agent: AgentBridge
     @EnvironmentObject var capture: CaptureManager
 
-    @State private var tab: NoteTab = .transcript
+    // QA hook: EARSHOT_QA_TAB=thoughts lands on the editor so its compact
+    // toolbar can be screenshotted at companion width.
+    @State private var tab: NoteTab =
+        ProcessInfo.processInfo.environment["EARSHOT_QA_TAB"] == "thoughts" ? .thoughts : .transcript
     @State private var title = ""
     @State private var thoughtsAttr = NSAttributedString()
     @StateObject private var rich = RichTextContext()
@@ -182,7 +185,8 @@ struct NoteDetailView: View {
         chat = store.loadChat(noteID: noteID)
         attachments = store.loadAttachments(noteID: noteID)
         savedSegments = store.loadSegments(noteID: noteID)
-        if isLiveNote { tab = .transcript }
+        if ProcessInfo.processInfo.environment["EARSHOT_QA_TAB"] == "thoughts" { tab = .thoughts }
+        else if isLiveNote { tab = .transcript }
         else if meta?.hasSummary == true { tab = .summary }
         if let audioURL { player.load(audioURL) }
         loaded = true
@@ -330,8 +334,8 @@ struct NoteDetailView: View {
             }
         }
         .padding(.horizontal, 28)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -376,7 +380,7 @@ struct NoteDetailView: View {
 
     private var thoughtsTab: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(context: rich) {
+            RichTextToolbar(context: rich, compact: barWidth < 660) {
                 showLinkPrompt = true
             } onAttachImage: {
                 showImagePicker = true

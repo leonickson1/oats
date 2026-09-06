@@ -130,33 +130,118 @@ enum GraphBuilder {
     }
 }
 
-// A small, deterministic force-directed layout. Positions are seeded on a circle
-// (no randomness, so the graph is stable across redraws), then relaxed with
-// repulsion between all nodes and spring attraction along edges.
+// A small, deterministic force-directed layout (no randomness, so the graph is
+// stable across redraws). Connected components are found first and each gets
+// its own region of the canvas, sized by how many nodes it holds (a weighted
+// binary split of the canvas). Every component is then relaxed independently
+// inside its region: repulsion between its nodes, spring attraction along its
+// edges, gravity to the region's center. Unrelated meetings can never tangle,
+// clusters never pile into one corner, and the whole canvas gets used.
 enum ForceLayout {
     static func layout(nodes: [GraphNode], edges: [GraphEdge], size: CGSize, iterations: Int = 320) -> [String: CGPoint] {
         guard !nodes.isEmpty else { return [:] }
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let radius = min(size.width, size.height) * 0.34
-        let count = nodes.count
+
+        // Connected components via union-find.
+        var parent: [String: String] = [:]
+        for node in nodes { parent[node.id] = node.id }
+        func root(_ id: String) -> String {
+            var r = id
+            while let p = parent[r], p != r { r = p }
+            var cur = id
+            while let p = parent[cur], p != r { parent[cur] = r; cur = p }
+            return r
+        }
+        for edge in edges where parent[edge.a] != nil && parent[edge.b] != nil {
+            parent[root(edge.a)] = root(edge.b)
+        }
+        var members: [String: [String]] = [:]
+        for node in nodes { members[root(node.id), default: []].append(node.id) }
+        var edgesByComponent: [String: [GraphEdge]] = [:]
+        for edge in edges where parent[edge.a] != nil {
+            edgesByComponent[root(edge.a), default: []].append(edge)
+        }
+
+        // Big components first; ids sorted inside so runs are identical.
+        let order = members.keys.sorted { a, b in
+            let ca = members[a]!.count, cb = members[b]!.count
+            return ca == cb ? a < b : ca > cb
+        }
+        let comps: [[String]] = order.map { members[$0]!.sorted() }
+        let compEdges: [[GraphEdge]] = order.map { edgesByComponent[$0] ?? [] }
+
+        // Carve the canvas into one region per component, area roughly
+        // proportional to node count (+3 keeps tiny components visible).
+        let weights = comps.map { Double($0.count) + 3 }
+        var rects = [CGRect](repeating: .zero, count: comps.count)
+        assignRegions(Array(comps.indices), weights: weights,
+                      rect: CGRect(origin: .zero, size: size).insetBy(dx: 10, dy: 10),
+                      into: &rects)
 
         var pos: [String: CGPoint] = [:]
-        for (i, node) in nodes.enumerated() {
-            let angle = (Double(i) / Double(count)) * 2 * .pi
-            pos[node.id] = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+        for (i, ids) in comps.enumerated() {
+            relax(ids: ids, edges: compEdges[i], rect: rects[i], iterations: iterations, into: &pos)
         }
-        guard count > 1 else { return pos }
+        return pos
+    }
 
-        let ids = nodes.map { $0.id }
-        let k = Double(min(size.width, size.height)) / sqrt(Double(count)) * 0.55  // ideal spacing
+    // Weighted slice-and-dice: split the component list into two halves of
+    // roughly equal weight, divide the rect along its longer side in the same
+    // proportion, recurse. Deterministic, and regions keep a sane aspect ratio.
+    private static func assignRegions(_ order: [Int], weights: [Double], rect: CGRect, into rects: inout [CGRect]) {
+        guard let first = order.first else { return }
+        if order.count == 1 {
+            rects[first] = rect
+            return
+        }
+        let total = order.reduce(0.0) { $0 + weights[$1] }
+        var left: [Int] = [], right: [Int] = []
+        var acc = 0.0
+        for idx in order {
+            if left.isEmpty || acc + weights[idx] <= total * 0.5 {
+                left.append(idx); acc += weights[idx]
+            } else {
+                right.append(idx)
+            }
+        }
+        if right.isEmpty { right.append(left.removeLast()); acc -= weights[right[0]] }
+        let frac = CGFloat(max(0.15, min(0.85, acc / total)))
+        if rect.width >= rect.height {
+            let w = rect.width * frac
+            assignRegions(left, weights: weights, rect: CGRect(x: rect.minX, y: rect.minY, width: w, height: rect.height), into: &rects)
+            assignRegions(right, weights: weights, rect: CGRect(x: rect.minX + w, y: rect.minY, width: rect.width - w, height: rect.height), into: &rects)
+        } else {
+            let h = rect.height * frac
+            assignRegions(left, weights: weights, rect: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h), into: &rects)
+            assignRegions(right, weights: weights, rect: CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: rect.height - h), into: &rects)
+        }
+    }
+
+    // One component relaxed inside its own region: circle seed, all-pairs
+    // repulsion, springs along edges, gravity to the region center. A lone
+    // meeting ends up a tidy starburst; the dense cluster gets the most room.
+    private static func relax(ids: [String], edges: [GraphEdge], rect: CGRect, iterations: Int, into pos: inout [String: CGPoint]) {
+        let inner = rect.insetBy(dx: min(30, rect.width * 0.12), dy: min(30, rect.height * 0.12))
+        let center = CGPoint(x: inner.midX, y: inner.midY)
+        let count = ids.count
+        if count == 1 {
+            pos[ids[0]] = center
+            return
+        }
+        let radius = max(10, min(inner.width, inner.height) * 0.38)
+        for (i, id) in ids.enumerated() {
+            let angle = (Double(i) / Double(count)) * 2 * .pi
+            pos[id] = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+        }
+
+        let k = max(8, sqrt(max(1, inner.width * inner.height) / Double(count)) * 0.62)
         let repulsion = k * k
-        var temperature = Double(min(size.width, size.height)) * 0.10
+        var temperature = max(4, min(inner.width, inner.height) * 0.12)
 
         for _ in 0..<iterations {
             var disp: [String: CGPoint] = [:]
             for id in ids { disp[id] = .zero }
 
-            // Repulsion between every pair.
+            // Repulsion between every pair in the component.
             for i in 0..<count {
                 for j in (i + 1)..<count {
                     let a = ids[i], b = ids[j]
@@ -173,7 +258,7 @@ enum ForceLayout {
                 }
             }
 
-            // Spring attraction along edges.
+            // Spring attraction along the component's edges.
             for edge in edges {
                 guard let pa = pos[edge.a], let pb = pos[edge.b] else { continue }
                 let dx = pa.x - pb.x
@@ -186,20 +271,20 @@ enum ForceLayout {
                 disp[edge.b] = CGPoint(x: disp[edge.b]!.x + fx, y: disp[edge.b]!.y + fy)
             }
 
-            // Apply, capped by temperature, then pull gently to center.
+            // Apply, capped by temperature, pulled gently to the region center
+            // and kept inside the region.
             for id in ids {
                 guard let d = disp[id], var p = pos[id] else { continue }
                 let len = max(0.01, sqrt(d.x * d.x + d.y * d.y))
                 p.x += d.x / len * min(len, temperature)
                 p.y += d.y / len * min(len, temperature)
-                p.x += (center.x - p.x) * 0.012
-                p.y += (center.y - p.y) * 0.012
-                p.x = min(max(24, p.x), size.width - 24)
-                p.y = min(max(24, p.y), size.height - 24)
+                p.x += (center.x - p.x) * 0.015
+                p.y += (center.y - p.y) * 0.015
+                p.x = min(max(inner.minX, p.x), inner.maxX)
+                p.y = min(max(inner.minY, p.y), inner.maxY)
                 pos[id] = p
             }
             temperature = max(2, temperature * 0.985)
         }
-        return pos
     }
 }

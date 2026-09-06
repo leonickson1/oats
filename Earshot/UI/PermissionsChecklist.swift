@@ -96,25 +96,41 @@ struct PermissionsChecklist: View {
     }
 }
 
-// The Home prompt shown until the essential permissions are granted.
+// The Home prompt shown while any permission still wants attention. Each row
+// keeps its own live state, so granting one never hides the others; once the
+// essentials are in, the rest is optional and the banner can be dismissed.
 struct PermissionsBanner: View {
     @ObservedObject var perms: Permissions
+    var onDismiss: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 11) {
+            HStack(alignment: .top, spacing: 11) {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Theme.record)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Finish setting up Oats")
                         .font(.system(size: 15, weight: .semibold))
-                    Text("Oats needs microphone access to record. It only listens when you press Record, and everything stays on this Mac.")
+                    Text(perms.essentialsMissing
+                         ? "Oats needs the microphone and system audio to hear both sides of a call. It only listens when you press Record, and everything stays on this Mac."
+                         : "Recording is ready. The rest is optional and just makes Oats nicer to live with.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
+                if let onDismiss, !perms.essentialsMissing {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hide this. Grant the rest any time in System Settings.")
+                }
             }
             PermissionsChecklist(perms: perms)
         }

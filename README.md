@@ -26,12 +26,20 @@ Oats sits quietly in the corner of your screen. Press record, have your meeting,
 
 <div align="center">
 
+<img src="docs/screenshots/hud.png" alt="The floating lozenge while recording" width="440" />
+
+**A quiet lozenge floats over your call.** Record, pause, and open your note from anywhere.
+
 |  |  |
 |:--:|:--:|
-| ![Summaries](docs/screenshots/summary.png) | ![Action items](docs/screenshots/action-items.png) |
-| **Summaries** written when you stop | **Action items** pulled out automatically |
-| ![Knowledge graph](docs/screenshots/knowledge-graph.png) | ![Ask across meetings](docs/screenshots/chat.png) |
-| **Knowledge graph** across every meeting | **Ask** anything, grounded in your notes |
+| ![Action items](docs/screenshots/action-items.png) | ![Knowledge graph](docs/screenshots/knowledge-graph.png) |
+| **Action items** pulled out automatically | **Knowledge graph** across every meeting |
+
+<img src="docs/screenshots/companion.png" alt="The companion window during a call" width="340" />
+
+**A companion column** docks beside your call and transcribes live.
+
+And even more: ask anything across all your meetings, summaries the moment you stop, screen captures straight into your notes.
 
 </div>
 

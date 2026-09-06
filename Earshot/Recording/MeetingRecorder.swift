@@ -177,6 +177,7 @@ final class MeetingRecorder: ObservableObject {
         do {
             try tap.start()
             systemAudioUnavailable = false
+            Permissions.markSystemAudioGranted()
             DebugLog.log("system audio tap started")
         } catch {
             // Mic-only still works (in-person meetings); the note view shows a hint.

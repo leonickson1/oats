@@ -28,14 +28,27 @@ final class Permissions: ObservableObject {
 
     deinit { timer?.invalidate() }
 
-    // The microphone is the one permission Oats genuinely cannot work without.
-    var needsAttention: Bool { mic != .granted }
+    // Recording a call genuinely needs both sides of the audio. Optional rows
+    // (screen, calendar) are the Home banner's business, not this flag's.
+    var essentialsMissing: Bool { mic != .granted || systemAudio != .granted }
+
+    // System audio has no status API, so a successful grant (from the probe or a
+    // real recording) is remembered here; without this the row would reset to
+    // "Allow" on every launch.
+    private nonisolated static let systemAudioKey = "perm.systemAudioGranted"
+
+    nonisolated static func markSystemAudioGranted() {
+        UserDefaults.standard.set(true, forKey: systemAudioKey)
+    }
 
     func refresh() {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: mic = .granted
         case .notDetermined: mic = .notDetermined
         default: mic = .denied
+        }
+        if systemAudio != .granted, UserDefaults.standard.bool(forKey: Self.systemAudioKey) {
+            systemAudio = .granted
         }
         // Preflight is true only once granted; false means "not yet or denied", so
         // only upgrade to granted here and never clobber a known .denied.
@@ -67,6 +80,7 @@ final class Permissions: ObservableObject {
             let tap = SystemAudioTap()
             var ok = false
             do { try tap.start(); ok = true; tap.stop() } catch { ok = false }
+            if ok { Permissions.markSystemAudioGranted() }
             await MainActor.run {
                 self?.systemAudio = ok ? .granted : .denied
                 self?.probingSystemAudio = false

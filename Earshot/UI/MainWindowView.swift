@@ -90,6 +90,15 @@ struct HomeView: View {
     @State private var askError: String?
     @State private var isAsking = false
     @StateObject private var perms = Permissions()
+    // Optional permissions can be waved away once the essentials are granted;
+    // an essential going missing brings the banner back regardless.
+    @AppStorage("permBannerHidden") private var permBannerHidden = false
+
+    private var showPermissionsBanner: Bool {
+        if perms.essentialsMissing { return true }
+        if permBannerHidden { return false }
+        return perms.screen != .granted || calendar.status == .notDetermined
+    }
 
     var body: some View {
         ScrollView {
@@ -103,9 +112,11 @@ struct HomeView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 18)
 
-                if perms.needsAttention {
-                    PermissionsBanner(perms: perms)
-                        .padding(.bottom, 18)
+                if showPermissionsBanner {
+                    PermissionsBanner(perms: perms) {
+                        withAnimation { permBannerHidden = true }
+                    }
+                    .padding(.bottom, 18)
                 }
 
                 if recorder.isActive, let liveID = recorder.currentNoteID {

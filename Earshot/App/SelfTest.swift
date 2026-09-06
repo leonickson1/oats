@@ -63,6 +63,34 @@ enum SelfTest {
             }
             check("force layout is finite and in-bounds", layoutOK)
 
+            // Two meetings with nothing in common must not pile up: each
+            // component keeps its own region and the layout uses the canvas
+            // instead of huddling in one corner.
+            let dm1 = UUID(), dm2 = UUID()
+            let dg = GraphBuilder.build(notes: [
+                (id: dm1, title: "D1", graph: NoteGraph(
+                    entities: [GraphEntity(name: "A1", kind: .person),
+                               GraphEntity(name: "A2", kind: .topic),
+                               GraphEntity(name: "A3", kind: .project)], relations: [])),
+                (id: dm2, title: "D2", graph: NoteGraph(
+                    entities: [GraphEntity(name: "B1", kind: .person),
+                               GraphEntity(name: "B2", kind: .topic),
+                               GraphEntity(name: "B3", kind: .org)], relations: []))
+            ])
+            let dSize = CGSize(width: 800, height: 600)
+            let dpos = ForceLayout.layout(nodes: dg.nodes, edges: dg.edges, size: dSize)
+            func centroid(of noteID: UUID) -> CGPoint {
+                let pts = dg.nodes.filter { $0.noteIDs.contains(noteID) }.compactMap { dpos[$0.id] }
+                let n = CGFloat(max(1, pts.count))
+                return CGPoint(x: pts.reduce(0) { $0 + $1.x } / n, y: pts.reduce(0) { $0 + $1.y } / n)
+            }
+            let c1 = centroid(of: dm1), c2 = centroid(of: dm2)
+            check("disconnected components separate", hypot(c1.x - c2.x, c1.y - c2.y) > 150)
+            let xs = dpos.values.map { $0.x }, ys = dpos.values.map { $0.y }
+            let spreadW = (xs.max() ?? 0) - (xs.min() ?? 0)
+            let spreadH = (ys.max() ?? 0) - (ys.min() ?? 0)
+            check("layout fills the canvas", spreadW > dSize.width * 0.5 || spreadH > dSize.height * 0.5)
+
             // Emoji vs SF Symbol detection for space icons.
             check("emoji detection", SpaceGlyph.isEmoji("📚") && !SpaceGlyph.isEmoji("folder") && !SpaceGlyph.isEmoji(""))
 
