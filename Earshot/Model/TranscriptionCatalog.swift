@@ -279,6 +279,7 @@ struct TranscriptionModelList: View {
             } else {
                 Button("Download") { speech.download() }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
             }
         } else if isDownloadable {
@@ -312,6 +313,7 @@ struct TranscriptionModelList: View {
                     }
                     Button("Download") { whisper.download(model.id) }
                         .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
                         .controlSize(.small)
                 }
             }
@@ -343,6 +345,7 @@ struct TranscriptionModelList: View {
         } else {
             Button("Use") { selectedID = model.id }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
                 .controlSize(.small)
         }
     }

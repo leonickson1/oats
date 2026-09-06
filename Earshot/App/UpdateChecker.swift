@@ -132,11 +132,14 @@ struct UpdateSheet: View {
                 HStack {
                     Button("Skip This Version") { checker.skip() }
                         .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
                     Spacer()
                     Button("Remind Me Later") { checker.remindLater() }
                         .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
                     Button("Install Update") { checker.install() }
                         .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
                         .keyboardShortcut(.defaultAction)
                 }
             }

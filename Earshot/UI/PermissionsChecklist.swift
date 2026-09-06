@@ -84,10 +84,12 @@ struct PermissionsChecklist: View {
             case .denied:
                 Button("Open Settings") { perms.openSettings(anchor) }
                     .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
             case .notDetermined:
                 Button("Allow") { grant() }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
             }
         }

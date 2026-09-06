@@ -324,9 +324,12 @@ struct RenameSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                 Button("Save") { save() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
             }
         }
         .padding(20)

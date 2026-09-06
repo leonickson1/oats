@@ -358,9 +358,12 @@ struct NewSpaceSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                 Button(confirmLabel) { submit() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
             }
         }
         .padding(20)

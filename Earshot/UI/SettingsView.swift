@@ -300,6 +300,7 @@ struct ShortcutRecorder: View {
                     .padding(.vertical, 3)
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
             .controlSize(.small)
             .tint(recording ? Theme.record : nil)
             .help("Click, then press the keys you want")

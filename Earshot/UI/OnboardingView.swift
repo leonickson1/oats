@@ -137,6 +137,7 @@ struct OnboardingView: View {
             if page > 0 {
                 Button("Back") { withAnimation(Motion.standard) { page -= 1 } }
                     .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
             }
             Spacer()
@@ -162,6 +163,7 @@ struct OnboardingView: View {
                 else { withAnimation(Motion.standard) { page += 1 } }
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
             .disabled(page == pageCount - 1 && !canFinish)
@@ -371,6 +373,7 @@ private struct AIPage: View {
                 if !pulling {
                     Button("Download") { downloadRecommended() }
                         .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
                         .controlSize(.regular)
                 }
             }
