@@ -59,11 +59,10 @@ struct HUDView: View {
 
     // MARK: - Adaptive glass
 
-    // A tint in the scheme's own direction keeps the pill reading solid on busy
-    // backgrounds without fighting the adaptive material.
-    private var glass: Glass {
-        backdrop.overLight ? Glass.regular.tint(.white.opacity(0.45)) : Glass.regular.tint(.black.opacity(0.55))
-    }
+    // Bare Liquid Glass, no tint: the panel's appearance flip (aqua/darkAqua
+    // from the backdrop sampler) already gives the material its light or dark
+    // base, and the untinted material keeps the true translucent look.
+    private var glass: Glass { .regular }
     private var glassInteractive: Glass { glass.interactive() }
     // Explicit, not .primary: the logo bakes its color into an SVG through
     // NSColor, which resolves semantic colors against the app's appearance
