@@ -71,6 +71,16 @@ final class NoteStore: ObservableObject {
         revision += 1
     }
 
+    // Wipes every note (folder and all). Used by the Settings reset. Closes all
+    // open append handles first so nothing keeps writing into a deleted folder.
+    func deleteAll() {
+        for id in appendHandles.keys { closeAppendHandle(id: id) }
+        let contents = (try? FileManager.default.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil)) ?? []
+        for url in contents { try? FileManager.default.removeItem(at: url) }
+        notes.removeAll()
+        revision += 1
+    }
+
     // MARK: - Transcript (append-only jsonl)
 
     func appendSegment(noteID: UUID, _ segment: TranscriptSegment) {

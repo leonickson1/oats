@@ -48,6 +48,13 @@ enum DemoData {
         UserDefaults.standard.removeObject(forKey: demoKey)
     }
 
+    // Forget which notes were samples, without deleting them individually. Used
+    // by the full reset, which wipes every note folder in one pass, so the demo
+    // tracking must be cleared too or "Load samples" would think they're present.
+    static func forgetTracking() {
+        UserDefaults.standard.removeObject(forKey: demoKey)
+    }
+
     static let samples: [Sample] = [
         Sample(title: "Apollo Kickoff", daysAgo: 21, duration: 2640, summary: """
         ## Overview

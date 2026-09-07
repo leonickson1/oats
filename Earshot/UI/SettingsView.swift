@@ -23,6 +23,7 @@ struct SettingsView: View {
                 SampleDataCard()
                 UpdatesCard()
                 DataCard()
+                ResetCard()
 
                 Color.clear.frame(height: 16)
             }
@@ -497,6 +498,82 @@ struct DataCard: View {
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
             }
+        }
+    }
+}
+
+// MARK: - Danger zone
+
+// A deliberately alarming card that erases everything. Red header, a plain
+// "don't use this" warning, a destructive button gated behind a confirmation,
+// and disabled while a recording is in progress so it can't nuke a live note.
+struct ResetCard: View {
+    @EnvironmentObject var app: AppState
+    @EnvironmentObject var recorder: MeetingRecorder
+    @State private var confirming = false
+    @State private var justReset = false
+
+    private let danger = Color(red: 0.78, green: 0.19, blue: 0.13)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(danger)
+                    .frame(width: 18)
+                Text("Reset Oats")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(danger)
+            }
+            Text("Danger: this permanently erases every note, transcript, recording, chat, space, action item and the whole knowledge graph. Your AI connections and settings stay. There is no undo. Don't use this unless you really mean it.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button(role: .destructive) {
+                    confirming = true
+                } label: {
+                    Label("Erase everything…", systemImage: "trash")
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(danger)
+                .disabled(recorder.isActive)
+
+                if recorder.isActive {
+                    Text("Stop the current recording first.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                } else if justReset {
+                    Label("Everything erased", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(radius: 16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(danger.opacity(0.35), lineWidth: 1)
+        )
+        .confirmationDialog(
+            "Erase everything in Oats?",
+            isPresented: $confirming,
+            titleVisibility: .visible
+        ) {
+            Button("Erase everything", role: .destructive) {
+                app.resetAllData()
+                justReset = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes all notes, transcripts, recordings, chats, spaces, action items and the knowledge graph on this Mac. Your AI connections and settings are kept. This cannot be undone.")
         }
     }
 }

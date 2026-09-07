@@ -17,10 +17,15 @@ No bot joins your calls. No audio leaves your machine. No account, no subscripti
 ![Local first](https://img.shields.io/badge/100%25-on--device-D2703F)
 &nbsp;
 ![License](https://img.shields.io/badge/license-Apache%202.0-111113)
+&nbsp;
+![Beta](https://img.shields.io/badge/status-BETA-D2703F?style=flat)
 
 </div>
 
 ---
+
+> [!WARNING]
+> **Oats is in beta.** It is early and moving fast, so expect rough edges and frequent updates. Keep **automatic updates on** (Settings → Updates) and install new versions as soon as they appear: fixes ship often, and updating is the quickest way to get them. Found a bug or have an idea? Please open an issue.
 
 Oats sits quietly in the corner of your screen. Press record, have your meeting, and when you stop it writes the summary, pulls out the action items, and files everything into a knowledge graph that connects people, projects, and topics across every meeting you have ever had. All of it happens on your Mac, with a model of your choosing.
 
@@ -117,6 +122,10 @@ Oats records only when you press Record and shows a visible recording state the 
 Grab the latest `Oats.dmg` from the [Releases page](../../releases/latest), open it, and drag Oats to your Applications folder. The App Store build is coming soon.
 
 Oats requires **macOS 26 or later** on Apple Silicon.
+
+### Updates
+
+Oats checks for a new version about once a day and, when one is out, shows you the release notes with an **Install** button, no reinstalling by hand. You can also check any time in **Settings → Updates**, or turn the automatic check off there. The check downloads a small version file and nothing else leaves your Mac. While Oats is in beta, please keep it on so fixes reach you quickly.
 
 ### Build from source
 

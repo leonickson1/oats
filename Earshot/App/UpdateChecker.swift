@@ -95,6 +95,23 @@ final class UpdateChecker: ObservableObject {
         if let u = available.flatMap({ URL(string: $0.url) }) { NSWorkspace.shared.open(u) }
         showSheet = false
     }
+
+    // QA/preview only: pretend a newer version exists and show the dialog, with
+    // no network call and without touching the real skipped-version state.
+    func presentSample() {
+        available = UpdateInfo(
+            version: "0.3.0",
+            notes: """
+            • Reset Oats: a new option in Settings wipes all your notes, chats, spaces and the knowledge graph in one step (your AI connections stay).
+            • Join & Record: when a calendar event has a Zoom, Google Meet or Teams link, the button opens the call and starts the note together.
+            • The floating lozenge now adapts its color natively, so it stays readable over any window, light or dark.
+            • Smoother expand and collapse animation on the lozenge.
+            """,
+            url: "https://github.com/leonickson1/oats/releases/latest/download/Oats.dmg"
+        )
+        AppState.shared.showMainWindow()
+        showSheet = true
+    }
 }
 
 // The update prompt, styled like a standard Mac software-update dialog.

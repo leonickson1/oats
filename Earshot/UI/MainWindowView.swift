@@ -599,14 +599,21 @@ struct ComingUpCard: View {
                                 .font(.system(size: 13, weight: .medium))
                                 .lineLimit(1)
                             Spacer()
+                            let link = MeetingLink.detect(in: event)
                             Button {
+                                // If the event carries a Zoom/Meet/Teams link, open
+                                // the call, then start the note. No link: just record.
+                                if let link { NSWorkspace.shared.open(link) }
                                 app.startMeetingNote(title: event.title)
                             } label: {
-                                Label("Record", systemImage: "record.circle")
+                                Label(link != nil ? "Join & Record" : "Record",
+                                      systemImage: link != nil ? "video.fill" : "record.circle")
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .buttonStyle(.glass)
                             .buttonBorderShape(.capsule)
+                            .tint(link != nil ? Theme.record : nil)
+                            .help(link != nil ? "Open \(MeetingLink.providerName(for: link!)) and start recording" : "Start recording")
                             .disabled(recorder.isActive)
                         }
                         .padding(.horizontal, 16)

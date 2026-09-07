@@ -91,4 +91,11 @@ final class AskStore: ObservableObject {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id.uuidString).json"))
         sessions.removeAll { $0.id == id }
     }
+
+    // Wipes every saved conversation. Used by the Settings reset.
+    func deleteAll() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for url in files { try? FileManager.default.removeItem(at: url) }
+        sessions.removeAll()
+    }
 }

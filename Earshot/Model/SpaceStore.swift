@@ -91,6 +91,13 @@ final class SpaceStore: ObservableObject {
         spaces.removeAll { $0.id == id }
     }
 
+    // Wipes every space. Used by the Settings reset.
+    func deleteAll() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for url in files { try? FileManager.default.removeItem(at: url) }
+        spaces.removeAll()
+    }
+
     func add(noteID: UUID, to spaceID: UUID) {
         guard var space = space(id: spaceID) else { return }
         if !space.noteIDs.contains(noteID) { space.noteIDs.append(noteID); save(space) }

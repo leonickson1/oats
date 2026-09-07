@@ -118,6 +118,11 @@ final class AppState: ObservableObject {
         if !UserDefaults.standard.bool(forKey: "didOnboard") {
             showOnboarding = true
         }
+        // QA hook: EARSHOT_QA_ONBOARD=1 forces the first-run onboarding for a
+        // screenshot WITHOUT clearing the real didOnboard flag.
+        if ProcessInfo.processInfo.environment["EARSHOT_QA_ONBOARD"] == "1" {
+            showOnboarding = true
+        }
         // QA hook: EARSHOT_QA_COMPANION=1 runs the exact HUD start path (real
         // recording, companion window) so the docked layout can be screenshotted.
         // "1" starts a companion recording and logs the frame; "2" additionally
@@ -234,6 +239,15 @@ final class AppState: ObservableObject {
                 self.sidebar = .graph
             }
         }
+        // QA hook: EARSHOT_QA_UPDATE=1 shows the update dialog with sample data
+        // (no network, no real version) so it can be screenshotted.
+        if ProcessInfo.processInfo.environment["EARSHOT_QA_UPDATE"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                UpdateChecker.shared.presentSample()
+            }
+        }
+
         showMainWindow()
         UpdateChecker.shared.checkOnLaunchIfDue()
     }
@@ -374,5 +388,22 @@ final class AppState: ObservableObject {
     func createSpace(name: String, symbol: String = SpaceGlyph.defaultSymbol) {
         let space = spaces.create(name: name, symbol: symbol)
         openSpace(id: space.id)
+    }
+
+    // Nuke every piece of user content: notes (and their transcripts, audio,
+    // summaries, chats, action items, knowledge graph), saved Ask conversations,
+    // and spaces. AI connections and all settings (Intelligence, calendar,
+    // permissions, shortcuts, update prefs) are UserDefaults/system state and are
+    // deliberately left untouched. Irreversible; the UI gates it behind a
+    // confirmation and disables it mid-recording.
+    func resetAllData() {
+        // The Settings button is disabled mid-recording, so nothing is writing.
+        notePath = []
+        sidebar = .home
+        store.deleteAll()
+        askStore.deleteAll()
+        spaces.deleteAll()
+        chat.newChat()                 // drop the in-memory active conversation
+        DemoData.forgetTracking()      // so "Load samples" is offered again
     }
 }
