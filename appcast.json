@@ -1,5 +1,5 @@
 {
-  "version": "0.2.1",
-  "notes": "A companion window for calls: starting notes from the floating lozenge or the hotkey now opens a slim column docked to the side of your screen, sidebar tucked away, with a toolbar button to grow it back into the full app. The lozenge and the companion follow whichever screen you are working on, and the ask bar stays usable at any width.",
-  "url": "https://github.com/leonickson1/oats/releases/download/v0.2.1/Oats.dmg"
+  "version": "0.3.0",
+  "notes": "Oats everywhere: the app identity changed from the old codename, your notes and settings migrate automatically, and macOS asks for permissions once more.\nThe floating lozenge now adapts to light and dark backgrounds natively, collapses without the squared-off flash, and centers its record button.\nJoin & Record: calendar events with a Zoom, Meet, Teams, or Webex link open the call and start the note in one click.\nSettings gains a clearly marked reset that erases all data on this Mac.\nOnboarding no longer blocks on permissions.",
+  "url": "https://github.com/leonickson1/oats/releases/download/v0.3.0/Oats.dmg"
 }

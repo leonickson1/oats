@@ -28,8 +28,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.oats.app
         PRODUCT_NAME: Oats
-        MARKETING_VERSION: 0.2.1
-        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: 0.3.0
+        CURRENT_PROJECT_VERSION: 4
         INFOPLIST_FILE: Oats/Info.plist
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_IDENTITY: "Apple Development"
