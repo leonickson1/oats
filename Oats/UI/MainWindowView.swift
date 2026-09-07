@@ -353,20 +353,40 @@ struct HomeView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 0) {
             Image(systemName: "waveform")
-                .font(.system(size: 30, weight: .light))
+                .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.tertiary)
             Text("No notes yet")
-                .font(.system(size: 15, weight: .semibold, design: .serif))
-            Text("Press New note before your next meeting. Oats transcribes both sides on this Mac and writes the summary for you.")
+                .font(.system(size: 16, weight: .semibold, design: .serif))
+                .padding(.top, 22)
+            Text("Start a note before your next meeting. Oats transcribes both sides on this Mac and writes the summary for you.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+                .lineSpacing(3)
+                .frame(maxWidth: 380)
+                .padding(.top, 12)
+            HStack(spacing: 14) {
+                Button { app.startMeetingNote() } label: {
+                    Label("New note", systemImage: "plus")
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                if !DemoData.isLoaded {
+                    Button { DemoData.load(into: store) } label: {
+                        Label("Load sample meetings", systemImage: "sparkles.rectangle.stack")
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                }
+            }
+            .padding(.top, 34)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 70)
+        .padding(.vertical, 80)
     }
 
     // MARK: - Floating ask bar
