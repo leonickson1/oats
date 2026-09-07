@@ -152,6 +152,19 @@ final class AppState: ObservableObject {
                 try? log.write(toFile: "/tmp/oats-companion.txt", atomically: true, encoding: .utf8)
             }
         }
+        // QA hook: OATS_QA_HOTKEY=1 fires the exact Opt+M handler twice, a few
+        // seconds apart, proving both branches: idle -> start a companion note,
+        // recording -> open the live note's window. (Posting a synthetic
+        // keypress needs Accessibility, which a headless QA shell lacks; this
+        // calls the same closure the Carbon hotkey does.)
+        if ProcessInfo.processInfo.environment["OATS_QA_HOTKEY"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                HotkeyManager.shared.onNewNote?()
+                try? await Task.sleep(for: .seconds(5))
+                HotkeyManager.shared.onNewNote?()
+            }
+        }
         // QA hook: OATS_QA_SCROLL=1 docks the window as the companion on
         // Home, dumps every NSScrollView (document vs clip height) to
         // /tmp/oats-scroll.txt, then scrolls the main one programmatically
@@ -244,6 +257,8 @@ final class AppState: ObservableObject {
                 self.sidebar = .graph
             }
         }
+        DemoData.validateTracking(against: store)
+
         // QA hook: OATS_QA_DEMO=1 seeds the sample meetings on launch (same as
         // Settings > Load samples) so marketing shots never show real notes.
         if ProcessInfo.processInfo.environment["OATS_QA_DEMO"] == "1", !DemoData.isLoaded {

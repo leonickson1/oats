@@ -64,6 +64,19 @@ enum DemoData {
         UserDefaults.standard.removeObject(forKey: demoKey)
     }
 
+    // Prefs can track sample notes that no longer exist: migrated defaults from
+    // an old install, or a notes folder deleted by hand. Left alone, that shows
+    // a phantom "Remove samples" button and hides "Load samples" forever.
+    @MainActor
+    static func validateTracking(against store: NoteStore) {
+        let tracked = Set(UserDefaults.standard.stringArray(forKey: demoKey) ?? [])
+        guard !tracked.isEmpty else { return }
+        let existing = Set(store.notes.map { $0.id.uuidString })
+        if tracked.isDisjoint(with: existing) {
+            UserDefaults.standard.removeObject(forKey: demoKey)
+        }
+    }
+
     static let samples: [Sample] = [
         Sample(title: "Apollo Kickoff", daysAgo: 21, duration: 2640, summary: """
         ## Overview
