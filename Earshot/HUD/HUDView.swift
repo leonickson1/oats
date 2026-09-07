@@ -65,6 +65,11 @@ struct HUDView: View {
 
     // MARK: - Idle
 
+    // The logo is the constant anchor ("core"): it is the whole pill when
+    // collapsed and the trailing button when expanded, so it never blinks out.
+    // The record button is a separate element ("record") that grows in and
+    // retracts. Nothing swaps its content mid-morph, so there is no blank
+    // rounded-rectangle lump on the way back to the collapsed shape.
     private var idleLozenge: some View {
         EarshotGlyphView(size: 16)
             .foregroundStyle(.primary)
@@ -89,7 +94,7 @@ struct HUDView: View {
             }
             .buttonStyle(.plain)
             .glassEffect(glassInteractive, in: .capsule)
-            .glassEffectID("core", in: glassNS)
+            .glassEffectID("record", in: glassNS)
             .help("New note  Opt+M")
 
             Button {
@@ -102,7 +107,7 @@ struct HUDView: View {
             }
             .buttonStyle(.plain)
             .glassEffect(glassInteractive, in: .circle)
-            .glassEffectID("notes", in: glassNS)
+            .glassEffectID("core", in: glassNS)
             .help("Open Oats")
         }
     }
