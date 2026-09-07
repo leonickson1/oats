@@ -93,6 +93,9 @@ struct ActionItemsView: View {
                 .disabled(scanning || unscanned.isEmpty)
                 .help(unscanned.isEmpty ? "All meetings scanned. New meetings are added automatically." : "Find action items in meetings not yet analyzed")
             }
+            ToolbarItem(placement: .primaryAction) {
+                RemoveSamplesButton()
+            }
         }
     }
 

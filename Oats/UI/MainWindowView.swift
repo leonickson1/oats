@@ -133,6 +133,7 @@ struct HomeView: View {
                     Text("Oats")
                         .font(.system(size: 30, weight: .medium, design: .serif))
                     Spacer()
+                    RemoveSamplesButton()
                 }
                 .padding(.top, 20)
                 .padding(.bottom, 18)
@@ -170,27 +171,6 @@ struct HomeView: View {
                                 noteRow(meta)
                             }
                         }
-                    }
-                    // Samples never quietly squat in a real archive: while any
-                    // are present, the list itself says so and offers the way
-                    // out right here, not just buried in Settings.
-                    if DemoData.isLoaded {
-                        HStack(spacing: 6) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                            Text("Sample meetings are mixed in so you can look around.")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(.secondary)
-                            Button("Remove them") {
-                                withAnimation { DemoData.remove(from: store) }
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 22)
                     }
                 }
                 Color.clear.frame(height: 30)
@@ -674,4 +654,27 @@ struct HomeRowButtonStyle: ButtonStyle {
 func markdownish(_ text: String) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
     return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+}
+
+// The way out of demo data, always in sight: an orange system button pinned to
+// the top of Home, Action items and the Knowledge graph while sample meetings
+// are loaded. One click removes exactly the samples and the button goes with
+// them. Orange (not the app accent) so it reads as "this takes something away".
+struct RemoveSamplesButton: View {
+    @EnvironmentObject var store: NoteStore
+
+    var body: some View {
+        if DemoData.isLoaded {
+            Button {
+                withAnimation { DemoData.remove(from: store) }
+            } label: {
+                Label("Remove samples", systemImage: "sparkles")
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.orange)
+            .help("Delete the 12 sample meetings and their action items and graph. Your own notes stay.")
+        }
+    }
 }

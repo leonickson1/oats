@@ -69,6 +69,9 @@ struct KnowledgeGraphView: View {
                 .disabled(scanning || unscanned.isEmpty)
                 .help(unscanned.isEmpty ? "All meetings analyzed. New meetings are added automatically." : "Extract people and topics from meetings not yet analyzed")
             }
+            ToolbarItem(placement: .primaryAction) {
+                RemoveSamplesButton()
+            }
         }
     }
 
