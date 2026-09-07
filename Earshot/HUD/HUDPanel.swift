@@ -21,9 +21,10 @@ final class HUDPanel: NSPanel {
         hidesOnDeactivate = false
         isMovableByWindowBackground = true
         becomesKeyOnlyIfNeeded = true
-        // Starts dark; HUDBackdrop flips this live to match what is behind the
-        // panel, so vibrancy renders dark ink over light content and vice versa.
-        appearance = NSAppearance(named: .darkAqua)
+        // No forced appearance: the panel follows the system so the Regular
+        // Liquid Glass and its vibrant content can flip light/dark on their own
+        // to stay legible over whatever is behind the pill. Pinning it dark here
+        // would make .primary resolve to white even over a white page.
 
         let hosting = NSHostingView(rootView: content)
         // The panel hugs its SwiftUI content, so transparent dead zones never

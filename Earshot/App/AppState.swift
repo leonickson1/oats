@@ -27,7 +27,6 @@ final class AppState: ObservableObject {
     let chat: ChatEngine        // the in-window ChatGPT-style conversation
     let spaces: SpaceStore      // workspaces of meetings
     let meetings = MeetingDetector()   // notices calls starting elsewhere
-    let backdrop = HUDBackdrop()       // screen brightness behind the HUD
 
     // Navigation: the home screen pushes note detail onto this path.
     @Published var notePath: [UUID] = []
@@ -71,7 +70,6 @@ final class AppState: ObservableObject {
         hudPanel = panel
         panel.positionBottomCenter()
         updateHUDVisibility()
-        backdrop.start(panel: panel)
         meetings.start()
         // A detected call must be able to raise the HUD even when it was
         // stepped aside (Oats frontmost); a dismissal lowers it again.
@@ -104,7 +102,7 @@ final class AppState: ObservableObject {
         }
 
         // Activation changes reposition the lozenge onto the screen you are
-        // working on and re-sample the backdrop behind it.
+        // working on.
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in AppState.shared.refreshHUD() }
         }
@@ -259,9 +257,6 @@ final class AppState: ObservableObject {
         if hudVisible {
             hudPanel.positionBottomCenter()
             hudPanel.orderFrontRegardless()
-            // Adapt to what is behind it the moment it appears, not on the
-            // next timer tick.
-            backdrop.sampleSoon()
         } else {
             hudPanel.orderOut(nil)
         }

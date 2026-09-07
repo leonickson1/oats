@@ -7,12 +7,17 @@ import SwiftUI
 //   call detected:       [call card] [take notes] [dismiss]
 //   recording collapsed: live bars + elapsed time
 //   recording expanded:  [bars + time] [pause] [stop] [notes]
-// The pill adapts to what is behind it, like native glass: over dark content it
-// is a dark pill with light ink, over a white page a light pill with dark ink.
+//
+// Legibility is the system's job, the way Apple designs Liquid Glass: the pill is
+// the Regular glass variant, which "continuously adapts based on what's behind
+// it" and flips light/dark on its own, and every glyph and label rides the
+// material's vibrancy so it flips with it (WWDC25 "Meet Liquid Glass": all
+// content on the Regular variant automatically receives this treatment). So we
+// never bake a color or sample the screen; we render vibrant .primary/.secondary
+// content and let macOS keep it readable over white pages, video, or dark walls.
 struct HUDView: View {
     @ObservedObject var app: AppState
     @ObservedObject var recorder: MeetingRecorder
-    @ObservedObject var backdrop: HUDBackdrop
     @ObservedObject var meetings: MeetingDetector
     @State private var hovering = false
     @Namespace private var glassNS
@@ -20,7 +25,6 @@ struct HUDView: View {
     init(app: AppState) {
         self.app = app
         self.recorder = app.recorder
-        self.backdrop = app.backdrop
         self.meetings = app.meetings
     }
 
@@ -45,35 +49,25 @@ struct HUDView: View {
         }
         .padding(10)
         .onHover { hovering = $0 }
-        // The whole pill renders in the scheme of what is behind it: light glass
-        // with dark ink over a white page, dark glass with light ink otherwise.
-        // Vibrancy and the glass material both key off the scheme, so every
-        // glyph flips together, the way native controls adapt to the wallpaper.
-        .environment(\.colorScheme, backdrop.overLight ? .light : .dark)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: expanded)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isActive)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: recorder.isPaused)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: meetings.current)
-        .animation(.easeInOut(duration: 0.3), value: backdrop.overLight)
     }
 
     // MARK: - Adaptive glass
 
-    // Bare Liquid Glass, no tint: the panel's appearance flip (aqua/darkAqua
-    // from the backdrop sampler) already gives the material its light or dark
-    // base, and the untinted material keeps the true translucent look.
+    // Bare Liquid Glass, no tint: the Regular material provides legibility over
+    // any content on its own, and the untinted material keeps the true
+    // translucent look. Content on top uses vibrant styles so it flips with it.
     private var glass: Glass { .regular }
     private var glassInteractive: Glass { glass.interactive() }
-    // Explicit, not .primary: the logo bakes its color into an SVG through
-    // NSColor, which resolves semantic colors against the app's appearance
-    // (dark), not the panel's, and would come out white on the light pill.
-    private var ink: Color { backdrop.overLight ? .black.opacity(0.85) : .white }
-    private var inkSecondary: Color { backdrop.overLight ? .black.opacity(0.55) : .white.opacity(0.62) }
 
     // MARK: - Idle
 
     private var idleLozenge: some View {
-        EarshotLogoView(color: ink, size: 16)
+        EarshotGlyphView(size: 16)
+            .foregroundStyle(.primary)
             .frame(width: 46, height: 26)
             .contentShape(Capsule())
             .glassEffect(glass, in: .capsule)
@@ -86,15 +80,12 @@ struct HUDView: View {
             Button {
                 app.startMeetingNote(companion: true)
             } label: {
-                HStack(spacing: 7) {
-                    RecordGlyph(color: Theme.record, size: 13)
-                    Text("Record")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundStyle(ink)
-                .frame(height: 30)
-                .padding(.horizontal, 13)
-                .contentShape(Capsule())
+                // Icon-only, dead-centered in the elliptical capsule. A frame
+                // centers its child by default, so the record glyph sits in the
+                // middle instead of hugging the leading edge.
+                RecordGlyph(color: Theme.record, size: 15)
+                    .frame(width: 52, height: 30)
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .glassEffect(glassInteractive, in: .capsule)
@@ -104,7 +95,8 @@ struct HUDView: View {
             Button {
                 app.showMainWindow()
             } label: {
-                EarshotLogoView(color: ink, size: 15)
+                EarshotGlyphView(size: 15)
+                    .foregroundStyle(.primary)
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
             }
@@ -118,20 +110,21 @@ struct HUDView: View {
     // MARK: - Call detected
 
     // One card, Granola-style: what happened on the left, a single prominent
-    // action on the right. The button inverts the card's ink so it reads as
-    // the native "do this" pill in both light and dark states.
+    // action on the right. The action is a solid record-red fill (a fill on top
+    // of glass, not glass-on-glass), so it reads as the primary "do this" pill
+    // over any backdrop without depending on a light/dark flip.
     private func callOffer(_ call: MeetingDetector.Detection) -> some View {
         HStack(spacing: 12) {
             Image(systemName: call.isBrowser ? "video.fill" : "phone.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(ink)
+                .foregroundStyle(.primary)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Call detected")
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(ink)
+                    .foregroundStyle(.primary)
                 Text(call.appName)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(inkSecondary)
+                    .foregroundStyle(.secondary)
             }
             .fixedSize()
 
@@ -140,16 +133,16 @@ struct HUDView: View {
                 app.startMeetingNote(companion: true)
             } label: {
                 HStack(spacing: 7) {
-                    RecordGlyph(color: Theme.record, size: 12)
+                    RecordGlyph(color: .white, size: 12)
                     Text("Take notes")
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                 }
                 .fixedSize()
-                .foregroundStyle(backdrop.overLight ? .white : Color.black.opacity(0.85))
+                .foregroundStyle(.white)
                 .frame(height: 36)
                 .padding(.horizontal, 16)
-                .background(backdrop.overLight ? Color.black.opacity(0.85) : .white, in: Capsule())
+                .background(Theme.record, in: Capsule())
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -161,7 +154,7 @@ struct HUDView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(inkSecondary)
+                    .foregroundStyle(.secondary)
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
             }
@@ -180,18 +173,19 @@ struct HUDView: View {
 
     private var recordingLozenge: some View {
         HStack(spacing: 8) {
-            EarshotLogoView(color: recorder.isPaused ? inkSecondary : Theme.record, size: 14)
+            EarshotGlyphView(size: 14)
+                .foregroundStyle(recorder.isPaused ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.record))
             if recorder.isPaused {
                 Image(systemName: "pause.fill")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(inkSecondary)
+                    .foregroundStyle(.secondary)
             } else {
                 WaveformBars(levels: recorder.levels, barColor: Theme.record, barCount: 7, maxHeight: 12)
             }
             Text(recorder.elapsed.clockString)
                 .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(ink)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -212,7 +206,7 @@ struct HUDView: View {
             } label: {
                 Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ink)
+                    .foregroundStyle(.primary)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }
@@ -238,7 +232,8 @@ struct HUDView: View {
             Button {
                 app.showCurrentNoteWindow()
             } label: {
-                EarshotLogoView(color: ink, size: 13)
+                EarshotGlyphView(size: 13)
+                    .foregroundStyle(.primary)
                     .frame(width: 28, height: 28)
                     .contentShape(Circle())
             }

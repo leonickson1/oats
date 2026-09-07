@@ -58,6 +58,18 @@ enum EarshotLogo {
         image.size = NSSize(width: size, height: size)
         return image
     }
+
+    // A template (mask) version of the mark: drawn solid and flagged as a
+    // template, so SwiftUI vibrancy tints it and flips it light/dark along with
+    // the Liquid Glass behind it, exactly the way a standard SF Symbol does. Use
+    // this on glass; the baked-color `image(color:)` cannot adapt.
+    static func templateImage(size: CGFloat) -> NSImage? {
+        guard let data = svg(stroke: "#000000").data(using: .utf8),
+              let image = NSImage(data: data) else { return nil }
+        image.size = NSSize(width: size, height: size)
+        image.isTemplate = true
+        return image
+    }
 }
 
 // The full app-icon logo (ink tile + cream mark), for splash/onboarding use.
@@ -94,5 +106,28 @@ struct EarshotLogoView: View {
             EarshotMark(color: color)
                 .frame(width: size, height: size)
         }
+    }
+}
+
+// Vibrant variant for Liquid Glass: renders the mark as a template image so it
+// takes the current foreground style and flips light/dark automatically with the
+// material behind it. No baked color, so nothing to keep in sync with a sampler.
+// Tint it (for a functional state) by applying `.foregroundStyle` at the call
+// site; left alone it inherits the adaptive label color, like a glyph on glass.
+struct EarshotGlyphView: View {
+    var size: CGFloat = 16
+
+    var body: some View {
+        Group {
+            if let nsImage = EarshotLogo.templateImage(size: size) {
+                Image(nsImage: nsImage)
+                    .renderingMode(.template)
+                    .interpolation(.high)
+                    .resizable()
+            } else {
+                EarshotMark()
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
