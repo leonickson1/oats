@@ -31,8 +31,10 @@ An update appears to users only when `appcast.json`'s `version` is **higher** th
      DEVELOPMENT_TEAM=838ASYRYR5 ENABLE_HARDENED_RUNTIME=YES \
      CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO 'OTHER_CODE_SIGN_FLAGS=--timestamp' build
    ```
-3. **Package + notarize.** Build the DMG (app + `/Applications` symlink, `hdiutil create -format UDZO`), sign it with `codesign --timestamp`, then:
+3. **Package + notarize.** Build the branded "Drag to Install" DMG (custom background, icon layout, volume icon), sign it with `codesign --timestamp`, then notarize:
    ```sh
+   packaging/dmg/build-dmg.sh <path-to>/Oats.app Oats.dmg
+   codesign --force --timestamp -s "Developer ID Application" Oats.dmg
    xcrun notarytool submit Oats.dmg --keychain-profile oats-notary --wait
    xcrun stapler staple Oats.dmg
    xcrun stapler validate Oats.dmg   # "The validate action worked!"

@@ -8,7 +8,7 @@
 
 No bot joins your calls. No audio leaves your machine. No account, no subscription. Your notes are plain files you own, and the AI is a model that already runs on your Mac.
 
-[![Download for macOS](https://img.shields.io/badge/Download-macOS%20.dmg-111113?style=for-the-badge&logo=apple&logoColor=white)](#install)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS%20.dmg-111113?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/leonickson1/oats/releases/latest/download/Oats.dmg)
 &nbsp;
 [![App Store](https://img.shields.io/badge/App%20Store-coming%20soon-D2703F?style=for-the-badge&logo=apple&logoColor=white)](#install)
 
@@ -119,7 +119,7 @@ Oats records only when you press Record and shows a visible recording state the 
 
 ### Download
 
-Grab the latest `Oats.dmg` from the [Releases page](../../releases/latest), open it, and drag Oats to your Applications folder. The App Store build is coming soon.
+[**Download Oats.dmg**](https://github.com/leonickson1/oats/releases/latest/download/Oats.dmg) (starts immediately), open it, and drag Oats to your Applications folder. Older versions live on the [Releases page](../../releases). The App Store build is coming soon.
 
 Oats requires **macOS 26 or later** on Apple Silicon.
 
