@@ -244,6 +244,37 @@ final class AppState: ObservableObject {
                 self.sidebar = .graph
             }
         }
+        // QA hook: OATS_QA_DEMO=1 seeds the sample meetings on launch (same as
+        // Settings > Load samples) so marketing shots never show real notes.
+        if ProcessInfo.processInfo.environment["OATS_QA_DEMO"] == "1", !DemoData.isLoaded {
+            DemoData.load(into: store)
+        }
+        // QA hook: OATS_QA_SCANALL=1 runs the action-item and graph extraction
+        // over every note on launch (what the Scan buttons do), writing progress
+        // to /tmp/oats-scanall.txt, so screenshot states can be prepared headless.
+        if ProcessInfo.processInfo.environment["OATS_QA_SCANALL"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                var log = ""
+                for (i, note) in self.store.notes.enumerated() {
+                    log += "actions \(i + 1)/\(self.store.notes.count) \(note.title)\n"
+                    try? log.write(toFile: "/tmp/oats-scanall.txt", atomically: true, encoding: .utf8)
+                    await self.recorder.extractActions(noteID: note.id)
+                    log += "graph \(i + 1)/\(self.store.notes.count) \(note.title)\n"
+                    try? log.write(toFile: "/tmp/oats-scanall.txt", atomically: true, encoding: .utf8)
+                    await self.recorder.extractGraph(noteID: note.id)
+                }
+                log += "DONE\n"
+                try? log.write(toFile: "/tmp/oats-scanall.txt", atomically: true, encoding: .utf8)
+            }
+        }
+        // QA hook: OATS_QA_ACTIONS=1 opens the action-items hub on launch.
+        if ProcessInfo.processInfo.environment["OATS_QA_ACTIONS"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                self.sidebar = .actions
+            }
+        }
         // QA hook: OATS_QA_UPDATE=1 shows the update dialog with sample data
         // (no network, no real version) so it can be screenshotted.
         if ProcessInfo.processInfo.environment["OATS_QA_UPDATE"] == "1" {

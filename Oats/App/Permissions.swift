@@ -42,6 +42,12 @@ final class Permissions: ObservableObject {
     }
 
     func refresh() {
+        // QA hook: OATS_QA_PERMS=1 reports everything granted, so marketing
+        // screenshots show the all-set state without touching real TCC.
+        if ProcessInfo.processInfo.environment["OATS_QA_PERMS"] == "1" {
+            mic = .granted; screen = .granted; systemAudio = .granted
+            return
+        }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: mic = .granted
         case .notDetermined: mic = .notDetermined

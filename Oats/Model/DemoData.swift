@@ -33,6 +33,15 @@ enum DemoData {
             for line in sample.lines {
                 store.appendSegment(noteID: created.id, TranscriptSegment(t: line.0, channel: line.1, text: line.2))
             }
+            // Seed the extraction results too. The sample transcripts are a few
+            // lines each, below the extractor's word floor, so scanning them
+            // would honestly produce nothing; these curated items make the hub
+            // and the graph alive the moment samples load.
+            let actions = (sampleActions[sample.title] ?? []).map {
+                ActionItem(text: $0.0, owner: $0.1, createdAt: date)
+            }
+            store.saveActions(noteID: created.id, actions)
+            store.saveGraph(noteID: created.id, sampleGraphs[sample.title] ?? .empty)
             ids.append(created.id.uuidString)
         }
         var existing = UserDefaults.standard.stringArray(forKey: demoKey) ?? []
@@ -189,5 +198,68 @@ enum DemoData {
         - [ ] Sarah to rebalance the Mobile app timeline (Sarah)
         - [ ] Elena to close the Apollo backend hire (Elena)
         """, lines: [(5, "me", "Apollo rewrite landed and Acme renewed."), (24, "them", "Mobile timeline is tight though.")]),
+    ]
+
+    // MARK: - Curated extraction results
+
+    // What the extractor would pull from each sample if the transcripts were
+    // full length. Keyed by sample title.
+    private static let sampleActions: [String: [(String, String?)]] = [
+        "Apollo Kickoff": [("Write the Apollo project brief", "Sarah"),
+                           ("Set up the weekly Apollo standup", "Marcus")],
+        "Website Redesign Sync": [("Ship the new landing hero", "Priya"),
+                                  ("Collect before and after conversion numbers", "Diego")],
+        "Acme Customer Call": [("Send Acme the onboarding checklist", "Sarah"),
+                               ("File the SSO bug Acme hit", "Marcus")],
+        "Engineering Standup": [("Fix the flaky deploy pipeline", "Marcus")],
+        "Q3 Pricing Review": [("Finalize Apollo pricing tiers", "Elena"),
+                              ("Brief Acme on pricing before the pilot", "Diego")],
+        "Hiring Sync": [("Post the backend engineer role", "Elena"),
+                        ("Schedule onsites for the two finalists", "Sarah")],
+        "Northwind Partnership": [("Draft the Northwind co-marketing one-pager", "Diego"),
+                                  ("Loop legal in on the data-sharing terms", "Elena")],
+        "Onboarding Revamp": [("Prototype the guided onboarding", "Priya"),
+                              ("Define the activation metric", "Sarah")],
+        "Mobile App Planning": [("Expose Apollo APIs for mobile", "Marcus"),
+                                ("Start the mobile app screens", "Priya")],
+        "Board Prep": [("Pull the churn and activation numbers", "Sarah"),
+                       ("Finalize the fundraising narrative", "Elena")],
+        "Acme Renewal": [("Confirm Apollo seat limits with Marcus", "Sarah"),
+                         ("Send the renewal quote to Acme", "Diego")],
+        "Team Retro": [("Close the Apollo backend hire", "Elena"),
+                       ("Trim the standup to fifteen minutes", "Marcus")],
+    ]
+
+    private static func graph(_ entities: [(String, EntityKind)],
+                              _ relations: [(String, String, String)]) -> NoteGraph {
+        NoteGraph(entities: entities.map { GraphEntity(name: $0.0, kind: $0.1) },
+                  relations: relations.map { GraphRelation(from: $0.0, to: $0.1, type: $0.2) })
+    }
+
+    private static let sampleGraphs: [String: NoteGraph] = [
+        "Apollo Kickoff": graph([("Sarah", .person), ("Marcus", .person), ("Apollo", .project)],
+                                [("Sarah", "Apollo", "works on"), ("Marcus", "Apollo", "works on")]),
+        "Website Redesign Sync": graph([("Priya", .person), ("Diego", .person), ("Website redesign", .project)],
+                                       [("Priya", "Website redesign", "works on"), ("Diego", "Website redesign", "measures")]),
+        "Acme Customer Call": graph([("Sarah", .person), ("Acme", .org), ("Apollo", .project)],
+                                    [("Acme", "Apollo", "uses"), ("Sarah", "Acme", "supports")]),
+        "Engineering Standup": graph([("Marcus", .person), ("Priya", .person), ("Apollo", .project), ("Deploy pipeline", .topic)],
+                                     [("Marcus", "Deploy pipeline", "fixes"), ("Priya", "Apollo", "works on")]),
+        "Q3 Pricing Review": graph([("Elena", .person), ("Diego", .person), ("Apollo", .project), ("Acme", .org), ("Pricing", .topic)],
+                                   [("Elena", "Pricing", "owns"), ("Pricing", "Apollo", "part of"), ("Diego", "Acme", "briefs")]),
+        "Hiring Sync": graph([("Elena", .person), ("Sarah", .person), ("Hiring", .topic)],
+                             [("Elena", "Hiring", "leads"), ("Sarah", "Hiring", "interviews")]),
+        "Northwind Partnership": graph([("Diego", .person), ("Elena", .person), ("Northwind", .org), ("Partnership", .topic)],
+                                       [("Diego", "Partnership", "leads"), ("Partnership", "Northwind", "with")]),
+        "Onboarding Revamp": graph([("Priya", .person), ("Sarah", .person), ("Onboarding", .project), ("Activation", .topic)],
+                                   [("Priya", "Onboarding", "works on"), ("Sarah", "Activation", "defines")]),
+        "Mobile App Planning": graph([("Marcus", .person), ("Priya", .person), ("Mobile app", .project), ("Apollo", .project)],
+                                     [("Mobile app", "Apollo", "depends on"), ("Priya", "Mobile app", "works on"), ("Marcus", "Apollo", "works on")]),
+        "Board Prep": graph([("Sarah", .person), ("Elena", .person), ("Churn", .topic), ("Fundraising", .topic)],
+                            [("Sarah", "Churn", "tracks"), ("Elena", "Fundraising", "leads")]),
+        "Acme Renewal": graph([("Sarah", .person), ("Diego", .person), ("Acme", .org), ("Apollo", .project)],
+                              [("Acme", "Apollo", "renews"), ("Sarah", "Acme", "manages")]),
+        "Team Retro": graph([("Elena", .person), ("Marcus", .person), ("Apollo", .project), ("Hiring", .topic)],
+                            [("Elena", "Hiring", "closes"), ("Marcus", "Apollo", "works on")]),
     ]
 }
