@@ -133,7 +133,7 @@ Requires macOS 26+, Xcode 26+, and [XcodeGen](https://github.com/yonaskolb/Xcode
 
 ```sh
 xcodegen generate
-xcodebuild -project Earshot.xcodeproj -scheme Earshot -configuration Debug -derivedDataPath build build
+xcodebuild -project Oats.xcodeproj -scheme Oats -configuration Debug -derivedDataPath build build
 open build/Build/Products/Debug/Oats.app
 ```
 
@@ -141,7 +141,7 @@ Set your own `DEVELOPMENT_TEAM` in `project.yml`. A plain Apple Development cert
 
 ## Your data
 
-Notes are folders of plain files you own, at `~/Library/Application Support/Earshot/notes/<id>/`:
+Notes are folders of plain files you own, at `~/Library/Application Support/Oats/notes/<id>/`:
 
 ```
 meta.json         title, date, duration

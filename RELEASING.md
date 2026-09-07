@@ -1,6 +1,6 @@
 # Releasing Oats
 
-How a new version reaches users. Oats has a built-in updater (`Earshot/App/UpdateChecker.swift`): on launch, at most once every 24 hours, it fetches a small JSON "appcast" from the repo, compares the version to what is running, and if there is a newer one it shows the release-notes dialog with an **Install** button.
+How a new version reaches users. Oats has a built-in updater (`Oats/App/UpdateChecker.swift`): on launch, at most once every 24 hours, it fetches a small JSON "appcast" from the repo, compares the version to what is running, and if there is a newer one it shows the release-notes dialog with an **Install** button.
 
 > [!IMPORTANT]
 > **The repo must be public for updates to work.** The app fetches
@@ -41,4 +41,4 @@ The launch check is throttled to once per 24h (`checkOnLaunchIfDue`). So after y
 
 ## Testing the dialog
 
-Run the app with `EARSHOT_QA_UPDATE=1` to show the update dialog with sample data (no network, no real version change), for screenshots or a quick look.
+Run the app with `OATS_QA_UPDATE=1` to show the update dialog with sample data (no network, no real version change), for screenshots or a quick look.
