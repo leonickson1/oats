@@ -166,17 +166,42 @@
   .final .cta { margin-top: 30px; }
   .final .fine { margin-top: 18px; font-size: 13px; color: var(--grey); font-weight: 500; }
 
-  /* ---------- footer ---------- */
-  footer { border-top: 1px solid var(--hairline); padding: 44px 0 36px; }
-  .foot-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 28px; }
-  .foot-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
-  .foot-brand img { width: 18px; height: 18px; border-radius: 4px; }
-  .foot-note { margin-top: 12px; font-size: 12px; color: var(--grey-2); max-width: 240px; line-height: 1.5; }
-  .foot-col h5 { font-size: 12.5px; font-weight: 600; margin-bottom: 10px; }
-  .foot-col a { display: block; font-size: 12.5px; color: var(--grey); padding: 4px 0; }
+  /* ---------- footer (full-bleed engraved landscape) ---------- */
+  .site-footer { position: relative; background: var(--bg); margin-top: 40px; overflow: hidden; }
+  /* The art sets the footer height and bleeds edge to edge. Its top half is
+     blank cream, so the nav overlays it on wide screens. max-height + cover keep
+     it from getting absurdly tall on very wide displays. */
+  .footer-art { display: block; width: 100%; height: auto; max-height: 82vh;
+    object-fit: cover; object-position: center bottom; }
+  /* A short cream fade at the very top hides any seam between the page and the
+     image's cream, so the join is invisible. */
+  .footer-art-wrap { position: relative; }
+  .footer-art-wrap::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 90px;
+    background: linear-gradient(var(--bg), transparent); z-index: 1; pointer-events: none; }
+  .footer-inner { position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+    max-width: 1120px; margin: 0 auto; padding: clamp(40px, 5vw, 76px) 32px 0; }
+  .foot-top { display: flex; justify-content: space-between; gap: 40px; flex-wrap: wrap; }
+  .foot-brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink); }
+  .foot-brand img { width: 22px; height: 22px; border-radius: 5px; }
+  .foot-note { margin-top: 13px; font-size: 13px; color: var(--grey); max-width: 260px; line-height: 1.55; }
+  .foot-cols { display: flex; gap: clamp(30px, 5vw, 80px); }
+  .foot-col h5 { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+  .foot-col a { display: block; font-size: 13px; color: var(--grey); padding: 5px 0; }
   .foot-col a:hover { color: var(--ink); }
-  .foot-legal { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--hairline); font-size: 12px; color: var(--grey-2); }
-  @media (max-width: 720px) { .foot-grid { grid-template-columns: 1fr 1fr; } }
+  .foot-col .foot-aside { display: block; margin-top: 8px; font-size: 11.5px; color: var(--grey-2); max-width: 190px; line-height: 1.5; }
+  .foot-legal { margin-top: clamp(26px, 4vw, 44px); font-size: 13px; font-weight: 500; color: var(--ink); }
+  .foot-legal span { color: var(--grey); font-weight: 400; }
+  @media (max-width: 760px) {
+    .site-footer { display: flex; flex-direction: column; }
+    .footer-inner { position: static; order: 1; padding: 40px 22px 30px; max-width: none; }
+    .footer-art-wrap { order: 2; }
+    /* Crop to a shallow landscape band anchored on the town/river, so the
+       image's own blank sky does not leave a big empty gap under the links. */
+    .footer-art { height: 50vw; max-height: 300px; object-fit: cover; object-position: center bottom; }
+    .footer-art-wrap::before { display: none; }
+    .foot-top { flex-direction: column; gap: 26px; }
+    .foot-cols { gap: 40px; }
+  }
 </style>
 </head>
 <body>
@@ -395,34 +420,38 @@ download    once</div>
   </div>
 </section>
 
-<footer>
-  <div class="container">
-    <div class="foot-grid">
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="foot-top">
       <div>
         <div class="foot-brand"><img src="assets/oats-logo.png" alt="" />OATS</div>
-        <div class="foot-note">Meeting notes that never leave your Mac. Built in Swift for macOS 26.</div>
+        <div class="foot-note">Meeting notes that never leave your Mac. Local first, no bot, no cloud. Built in Swift for macOS 26.</div>
       </div>
-      <div class="foot-col">
-        <h5>Product</h5>
-        <a href="#features">Features</a>
-        <a href="#models">Models</a>
-        <a href="https://github.com/leonickson1/oats/releases/latest/download/Oats.dmg" download>Download</a>
-      </div>
-      <div class="foot-col">
-        <h5>Resources</h5>
-        <a href="https://github.com/leonickson1/oats" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/leonickson1/oats/releases" target="_blank" rel="noopener">Releases</a>
-        <a href="https://github.com/leonickson1/oats/issues" target="_blank" rel="noopener">Issues</a>
-      </div>
-      <div class="foot-col">
-        <h5>Legal</h5>
-        <a href="https://github.com/leonickson1/oats/blob/main/LICENSE" target="_blank" rel="noopener">Apache 2.0 license</a>
+      <div class="foot-cols">
+        <div class="foot-col">
+          <h5>Product</h5>
+          <a href="#features">Features</a>
+          <a href="#models">Models</a>
+          <a href="#privacy">Privacy</a>
+          <a href="https://github.com/leonickson1/oats/releases/latest/download/Oats.dmg" download>Download</a>
+        </div>
+        <div class="foot-col">
+          <h5>Resources</h5>
+          <a href="https://github.com/leonickson1/oats" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/leonickson1/oats/releases" target="_blank" rel="noopener">Releases</a>
+          <a href="https://github.com/leonickson1/oats/issues" target="_blank" rel="noopener">Issues</a>
+        </div>
+        <div class="foot-col">
+          <h5>Legal</h5>
+          <a href="https://github.com/leonickson1/oats/blob/main/LICENSE" target="_blank" rel="noopener">Apache 2.0 license</a>
+          <span class="foot-aside">Always get consent when you record other people.</span>
+        </div>
       </div>
     </div>
-    <div class="foot-legal">
-      <div>&copy; 2026 Oats.</div>
-      <div>Always get consent when you record other people.</div>
-    </div>
+    <div class="foot-legal">Oats &copy; 2026 &middot; <span>Meeting notes that never leave your Mac.</span></div>
+  </div>
+  <div class="footer-art-wrap">
+    <img class="footer-art" src="assets/footer-landscape.webp" alt="" aria-hidden="true" />
   </div>
 </footer>
 
