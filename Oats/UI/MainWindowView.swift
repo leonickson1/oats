@@ -171,6 +171,27 @@ struct HomeView: View {
                             }
                         }
                     }
+                    // Samples never quietly squat in a real archive: while any
+                    // are present, the list itself says so and offers the way
+                    // out right here, not just buried in Settings.
+                    if DemoData.isLoaded {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
+                            Text("Sample meetings are mixed in so you can look around.")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(.secondary)
+                            Button("Remove them") {
+                                withAnimation { DemoData.remove(from: store) }
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 22)
+                    }
                 }
                 Color.clear.frame(height: 30)
             }

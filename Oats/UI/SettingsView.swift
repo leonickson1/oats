@@ -455,7 +455,7 @@ struct SampleDataCard: View {
         SettingsCard(
             icon: "sparkles",
             title: "Sample meetings",
-            explainer: "Load 12 connected demo meetings (people, projects, customers) so you can try the knowledge graph, action items and search. Then hit Analyze / Scan on those screens to generate them."
+            explainer: "Load 12 connected demo meetings (people, projects, customers) with their action items and knowledge graph filled in, so you can try every screen before your first real meeting."
         ) {
             SettingsRow(title: loaded ? "Sample meetings loaded" : "Try Oats with example data",
                         subtitle: loaded ? "Remove them any time" : "12 meetings added to Home") {
